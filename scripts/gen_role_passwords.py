@@ -1,0 +1,147 @@
+"""Generate the seven role passwords and the seven role connection URLs, into ``.env``.
+
+Run once, before the first ``alembic upgrade head``::
+
+    uv run python scripts/gen_role_passwords.py
+
+**This script prints no secret.** It writes directly into ``.env`` (gitignored) and reports only
+which variables it set. Passwords should never appear in a terminal, a chat, an issue, or a PR.
+
+The connection URLs are derived from ``SUPABASE_DB_STATEFUL_URL`` by substituting the username and
+password, so the host, port, and database come from the endpoint you already verified works. On
+the Supabase session pooler the username carries the project ref (``postgres.<ref>``), and this
+handles that shape as well as a plain direct-connection username.
+
+Re-running rotates every password. That is safe as long as ``alembic upgrade head`` is run
+afterwards — migration 0001 issues ``ALTER ROLE … PASSWORD`` for a role that already exists, so
+``.env`` stays authoritative. Rotating without re-running the migration leaves every ``DQ_*_URL``
+pointing at a password the database does not have.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import secrets
+import shutil
+import string
+import sys
+from pathlib import Path
+from urllib.parse import quote, urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from dq.config.settings import ROLE_PASSWORD_VAR, ROLE_URL_VAR, Role, load_dotenv
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ENV_PATH = REPO_ROOT / ".env"
+
+# No quotes, backslashes, or shell metacharacters: these values land in connection URLs, in a
+# dotenv file, and in a `quote_literal` round trip. Restricting the alphabet removes an entire
+# class of escaping bug at the cost of a few bits, which 40 characters more than repays.
+ALPHABET = string.ascii_letters + string.digits + "-._~"
+LENGTH = 40
+
+
+def generate() -> str:
+    return "".join(secrets.choice(ALPHABET) for _ in range(LENGTH))
+
+
+def resolve_placeholder(url: str) -> str:
+    """Fill Supabase's ``[YOUR-PASSWORD]`` placeholder from ``SUPABASE_DB_PASSWORD``.
+
+    The dashboard hands the connection string out with that literal in place, and this project
+    keeps the password in its own variable rather than pasting it into the URL. The scheme is left
+    alone so what lands in ``.env`` stays usable by ``psql`` as well as by SQLAlchemy.
+    """
+    placeholder = "[YOUR-PASSWORD]"
+    if placeholder not in url:
+        return url
+    password = os.environ.get("SUPABASE_DB_PASSWORD", "").strip()
+    if not password:
+        raise SystemExit(
+            f"SUPABASE_DB_STATEFUL_URL still contains {placeholder} and SUPABASE_DB_PASSWORD "
+            f"is unset. Set one or the other."
+        )
+    return url.replace(placeholder, quote(password, safe=""))
+
+
+def derive_url(stateful_url: str, role: Role, password: str) -> str:
+    """Return ``stateful_url`` with the username and password swapped for ``role``'s."""
+    parts = urlsplit(stateful_url)
+    if not parts.hostname:
+        raise SystemExit("SUPABASE_DB_STATEFUL_URL is not a parseable URL.")
+
+    current_user = parts.username or "postgres"
+    # Session pooler usernames are `postgres.<project_ref>`; direct connections are just
+    # `postgres`. Preserve whichever shape is in use.
+    if "." in current_user:
+        _, _, project_ref = current_user.partition(".")
+        new_user = f"{role.value}.{project_ref}"
+    else:
+        new_user = role.value
+
+    netloc = f"{new_user}:{quote(password, safe='')}@{parts.hostname}"
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    return f"{parts.scheme}://{netloc}{parts.path or '/postgres'}"
+
+
+def upsert(lines: list[str], key: str, value: str) -> list[str]:
+    """Set ``key=value``, replacing an existing assignment or appending a new one."""
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    for i, line in enumerate(lines):
+        if pattern.match(line):
+            lines[i] = f"{key}={value}"
+            return lines
+    lines.append(f"{key}={value}")
+    return lines
+
+
+def main() -> int:
+    if not ENV_PATH.is_file():
+        print("ERROR: .env not found. Copy .env.example to .env and fill it in first.")
+        return 1
+
+    load_dotenv()
+
+    stateful = os.environ.get("SUPABASE_DB_STATEFUL_URL", "").strip().strip('"').strip("'")
+    if not stateful:
+        print("ERROR: SUPABASE_DB_STATEFUL_URL is unset in .env. Fill it in first.")
+        return 1
+    stateful = resolve_placeholder(stateful)
+
+    # This script rewrites .env wholesale. A backup costs nothing and the file holds the only copy
+    # of a working connection string. `.env.*` is gitignored, so the backup cannot be committed.
+    backup = ENV_PATH.parent / ".env.bak"
+    shutil.copy2(ENV_PATH, backup)
+
+    text = ENV_PATH.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.append("# --- generated by scripts/gen_role_passwords.py ---")
+
+    written: list[str] = []
+    for role in Role:
+        password = generate()
+        pw_var = ROLE_PASSWORD_VAR[role]
+        url_var = ROLE_URL_VAR[role]
+        lines = upsert(lines, pw_var, password)
+        lines = upsert(lines, url_var, derive_url(stateful, role, password))
+        written.extend([pw_var, url_var])
+
+    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(f"Wrote {len(written)} variables to .env (values not shown):")
+    for name in written:
+        print(f"  {name}")
+    print()
+    print("Next: uv run alembic upgrade head")
+    print("The first upgrade connects as the Supabase superuser via SUPABASE_DB_STATEFUL_URL,")
+    print("because dq_migrate does not exist until migration 0001 creates it.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -555,3 +555,129 @@ task IDs present.
 ### Next
 
 `/speckit-implement` — start with the MVP scope, Phases 1–3.
+
+---
+
+## Session 3 — 2026-08-24 — `/speckit-implement`, Phases 1–2 (T001–T030)
+
+**Scope:** setup and foundation only. The stop condition was `alembic upgrade head` succeeding
+against Supabase with the role conformance test passing. Phase 3 deliberately not started.
+
+**Result: all 30 tasks complete.** 31 tests pass, mypy strict clean across 36 files, ruff clean.
+The Supabase project now holds 7 roles, 5 schemas, 14 tables, 19 triggers and 3 functions, at
+migration `0005`.
+
+### What exists now
+
+```
+src/dq/config/{settings,models}.py      env loading, per-role URLs, model-ID placeholder
+src/dq/db/{schemas,engine,migration_support}.py
+src/dq/domain/{commercial,dq}.py        14 tables, symbolic schema names
+migrations/versions/0001..0005          roles, schemas, tables, triggers, grants
+tests/conftest.py                       prefixed schema lifecycle + stale sweep
+tests/integration/                      conformance, privileges, predicate trigger
+scripts/                                gen_role_passwords, db_state, db_sessions,
+                                        env_check, measure_storage, fix_test_url
+```
+
+### T007 — the volume test fits, and indexes are why it nearly didn't
+
+Measured, not estimated (`scripts/measure_storage.py`, 20k rows extrapolated):
+
+| Table | bytes/row | heap | index | Projected |
+|---|---|---|---|---|
+| `sales_transaction` | 206.4 | 102.0 | 104.4 | 196.9 MB @ 1M |
+| `hcp` | 338.3 | 111.0 | 227.3 | 32.3 MB @ 100K |
+| | | | **Total** | **229.1 MB** |
+
+271 MB headroom against the 500 MB ceiling, so T052 is buildable and R1's storage half is closed.
+**Indexes are 51% of `sales_transaction` and 67% of `hcp`** — a column-width estimate would have
+been out by 3x and called this infeasible. Recorded in `research.md` § D8.
+
+### Six failures worth remembering
+
+Each cost real time and none was visible in the design.
+
+**1. Silent rollback that reported success.** `alembic upgrade head` printed both migrations and
+exited 0, with nothing committed. The pre-flight probe in `env.py` opened an implicit transaction;
+Alembic then nested inside it rather than owning it, and `engine.connect()` rolled everything back
+on exit. The fix is one unconditional `connection.commit()` after the probe. **Exit code 0 is not
+evidence that a migration applied** — `scripts/db_state.py` exists because of this.
+
+**2. An orphaned backend blocked everything.** A run the pooler dropped left a backend
+`idle in transaction` for 16 minutes, holding catalog locks. Unrelated `CREATE FUNCTION` and
+`GRANT` statements then died on `statement_timeout` with messages naming `pg_proc` and
+`pg_database` — which read like permission or corruption problems, not lock waits.
+`scripts/db_sessions.py --kill-idle` diagnoses and clears it. Expect this after any killed run.
+
+**3. `GRANT CREATE ON DATABASE` is not usable here.** It updates a contended row in the
+cluster-wide `pg_database` catalog and dies on timeout, taking the connection with it. Removed —
+`dq_migrate` owns all five schemas, so nothing in Feature 1 or 2 needs it. **The first feature that
+adds a sixth schema must run that one GRANT out of band, as the Supabase owner, and should expect
+to retry it.** Noted in migration 0005.
+
+**4. `%` in PL/pgSQL cannot travel through SQLAlchemy.** `text()` escapes every `%` to `%%` for
+psycopg's pyformat paramstyle; `exec_driver_sql` still trips psycopg's placeholder parser
+(`only '%s', '%b', '%t' are allowed`). `RAISE` placeholders and `format()` specifiers are full of
+them. `migration_support.execute_raw()` goes to the driver cursor with no `params`, skipping
+placeholder parsing entirely.
+
+**5. `pg_depend` cannot see built-in functions.** The T025 trigger originally read dependency rows
+to learn which functions a predicate resolved. **PostgreSQL records no dependencies on pinned
+system objects** — so it saw `levenshtein` (an extension function) and was blind to `now()` and
+`random()`, which are exactly the ones principle I is about. Rewritten to scan
+`pg_rewrite.ev_action`, the actual parse tree, for `:funcid` / `:opfuncid` / `:relid`. The same fix
+applies to rule 5 and `pg_catalog` tables.
+
+`CURRENT_DATE` then needed a third mechanism: it parses to a `SQLValueFunction` node, so it carries
+no function OID *and* no parentheses. It is caught lexically or not at all — and it is the first
+thing a timeliness-rule author writes.
+
+**6. The cast operator and the parameter marker share a character.** `h.hcp_id::text` reads as a
+parameter named `:text`. This broke both rule 8 and the probe substitution, rejecting every
+well-formed predicate. Casts are now stripped (rule 8) or sentinel-protected (probe) first.
+
+### Decisions taken during implementation
+
+| Decision | Why |
+|---|---|
+| Symbolic schema names + `schema_translate_map` | One predicate string runs against `commercial` and against a prefixed test schema with no rewriting. Raw DDL uses `schemas.physical()`, validated by `assert_safe_identifier` |
+| T025 validates by building a **temp view** and reading its parse tree | Exact rather than lexical: it sees through aliases, operators, and overload selection. `date_trunc(text, timestamp)` passes as IMMUTABLE while the `timestamptz` overload is rejected — no name-based check can make that distinction |
+| That function is `SECURITY DEFINER` | `dq_author` has no SELECT on `commercial` (T030 asserts it) and could not otherwise plan a predicate over it. Creating a view does not execute the query, so no data can leak through it |
+| Rule 6 (total ordering) is an approximation | It checks that the final `ORDER BY` term names a known-unique column. A real proof needs the constraint set. Deliberately strict — in the duplicate families, ties are the whole subject matter |
+| `env.py` probes for `dq_migrate` rather than guessing | The first upgrade must run as the superuser because 0001 creates that role; every later one runs as `dq_migrate`. One extra round trip removes a bootstrap step that is easy to get wrong |
+| The conformance test parses the constitution | A test carrying its own copy of the seven roles would keep passing after someone edited principle VI |
+| Passwords generated into `.env`, never printed | `scripts/gen_role_passwords.py`. It also derives the seven `DQ_*_URL` from the stateful URL, so no connection string is ever pasted anywhere |
+
+### Environment fixes
+
+- `TEST_DATABASE_URL` and `SUPABASE_DB_POOLED_URL` held **bare hostnames, not URLs**. The first
+  blocked every integration test; it now mirrors `SUPABASE_DB_STATEFUL_URL` verbatim
+  (`scripts/fix_test_url.py`). **`SUPABASE_DB_POOLED_URL` is still malformed** — unused in Feature
+  1, but it will fail the moment something reads it.
+- `.env.bak` now exists (a backup is taken before each rewrite). Gitignored; delete when happy.
+- `ANTHROPIC_API_KEY` is unset. Not needed until Feature 3.
+
+### Known limitations, carried forward
+
+1. **Rule 6 is approximate** (above). Tighten it if a legitimate rule is ever wrongly rejected.
+2. **No `CREATE` on database for `dq_migrate`** (above).
+3. **A `:word` inside a string literal** is substituted during probe construction. It can only turn
+   a valid predicate into an unplannable one, which surfaces as a clear error rather than as a
+   wrong verdict.
+4. **Principle VII is still unenforced**, as designed. Synthetic data only, and no masking
+   mechanism because no prompt boundary exists yet. Feature 3.
+5. **T052's compute half is untested.** Storage fits; whether `t4g.nano` runs 1M rows in under 10
+   minutes is unknown until T052 actually runs.
+
+### Next
+
+Phase 3 (US1), T031–T052 — the MVP. It ends with SC-001 set equality and T052.
+Run T052 *early*, not last: it is the check that catches an architecturally wrong design, and its
+whole value lies in catching that before three more stories are built on top.
+
+```powershell
+uv run pytest                 # 31 pass
+uv run alembic upgrade head   # at 0005
+uv run python scripts/db_state.py
+```

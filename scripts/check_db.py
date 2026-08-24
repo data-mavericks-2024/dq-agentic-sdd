@@ -47,7 +47,7 @@ def read_env(name: str) -> str | None:
 def clean(url: str) -> str:
     """Strip the wrappers people paste along with the URL."""
     url = url.strip().strip('"').strip("'")
-    url = re.sub(r"^psql\s+", "", url)          # "psql postgresql://..."
+    url = re.sub(r"^psql\s+", "", url)  # "psql postgresql://..."
     return url.strip('"').strip("'")
 
 
@@ -97,7 +97,9 @@ def diagnose(url: str) -> None:
         print("  It contains more than one '@' — an unencoded '@' in the password")
         print("  splits the URI. Percent-encode it as %40, or use SUPABASE_DB_PASSWORD.")
     print("\nExpected shape (session pooler):")
-    print("  postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres")
+    print(
+        "  postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+    )
 
 
 def main() -> int:
@@ -115,7 +117,7 @@ def main() -> int:
 
     try:
         conn = psycopg.connect(url, connect_timeout=15)
-    except Exception as exc:  # noqa: BLE001 - diagnostic script, report anything
+    except Exception as exc:
         print(f"FAILED to connect: {type(exc).__name__}: {exc}\n")
         if "pooler.supabase.com" not in url:
             print("Timed out on a direct host? The network is IPv4-only. Open Connect in")
@@ -126,17 +128,28 @@ def main() -> int:
             print("(the session pooler requires the ref suffix on the username).")
         return 1
 
+    def scalar(sql: str) -> str:
+        """First column of the first row, as text.
+
+        `fetchone()` is typed as optional because a query *may* return no rows; these cannot, so
+        the assertion documents that rather than leaving three `[0]` subscripts to be read as
+        oversights.
+        """
+        row = conn.execute(sql).fetchone()
+        assert row is not None, f"expected a row from: {sql}"
+        return str(row[0])
+
     with conn:
-        version = conn.execute("select version()").fetchone()[0]
+        version = scalar("select version()")
         print(f"connected: {version.split(' on ')[0]}")
-        print(f"database:  {conn.execute('select current_database()').fetchone()[0]}")
-        print(f"user:      {conn.execute('select current_user').fetchone()[0]}")
+        print(f"database:  {scalar('select current_database()')}")
+        print(f"user:      {scalar('select current_user')}")
 
         # Prepared statements must work, or Alembic and PostgresSaver will break.
         try:
             conn.execute("select 1", prepare=True)
             print("prepared statements: OK")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"prepared statements: FAILED ({type(exc).__name__})")
             print("  You are on the transaction pooler. Switch to session pooler or direct.")
 
@@ -145,7 +158,7 @@ def main() -> int:
             conn.execute("select pg_advisory_lock(1)")
             conn.execute("select pg_advisory_unlock(1)")
             print("advisory locks:      OK")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"advisory locks:      FAILED ({type(exc).__name__})")
 
         # Constitution principle 6 requires four least-privilege roles.
@@ -153,7 +166,7 @@ def main() -> int:
             conn.execute("create role dq_probe nologin")
             conn.execute("drop role dq_probe")
             print("CREATE ROLE:         OK -- principle 6 is implementable")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             conn.rollback()
             print(f"CREATE ROLE:         DENIED ({type(exc).__name__}: {exc})")
             print("  Principle 6 (least-privilege roles) needs rethinking. Flag this.")

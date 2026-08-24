@@ -1,0 +1,93 @@
+[project]
+name = "dq-agentic-sdd"
+version = "0.1.0"
+description = "Agentic Data Quality Monitoring & Resolution Platform — deterministic foundation"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "pyyaml>=6.0",
+    "click>=8.1",
+]
+
+[project.scripts]
+dq = "dq.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.14",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dq"]
+
+# ---------------------------------------------------------------------------
+# T003 — ruff and mypy strict
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# Ruff reformats Python code blocks inside Markdown. The specs are design artifacts under review —
+# a formatter silently rewriting an illustrative snippet in a contract puts the document and the
+# thing it specifies out of step for no benefit.
+extend-exclude = ["*.md", "specs/**", "docs/**"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "S",        # bandit
+    "C4",       # comprehensions
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+]
+ignore = [
+    # The migrations and the predicate-validation trigger are large SQL literals.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert; the privilege tests deliberately execute SQL built from role names.
+"tests/**" = ["S101", "S608"]
+# Migrations compose DDL from validated identifiers — see dq.db.schemas.assert_safe_identifier.
+"migrations/**" = ["S608"]
+"scripts/**" = ["S101", "S608"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true
+files = ["src", "tests", "scripts", "migrations"]
+
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# T004 — pytest markers. `volume` is excluded from the default run.
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "volume: 1M-row performance check (SC-008). Slow and storage-hungry; excluded by default.",
+    "golden: calls a real model. Costs tokens. Not used until Feature 3.",
+]
+addopts = "-m 'not volume and not golden' --strict-markers -ra"

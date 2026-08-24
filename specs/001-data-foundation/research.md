@@ -215,6 +215,33 @@ HCP rows with three, plausibly consumes 250–350 MB of a 500 MB free-tier ceili
 before any orphaned test schema. The volume test may be **infeasible** rather than merely slow —
 establish the storage arithmetic as the first task, not after building it.
 
+### Measured (T007, 2026-08-24) — the volume test fits
+
+Measured, not estimated, by `scripts/measure_storage.py`: a scratch schema built from the real
+`dq.domain` table and index definitions, filled server-side with 20,000 rows of each shape, then
+`pg_total_relation_size` extrapolated to the SC-008 target.
+
+| Table | bytes/row total | heap | index | Target rows | Projected |
+|---|---|---|---|---|---|
+| `sales_transaction` | 206.4 | 102.0 | 104.4 | 1,000,000 | 196.9 MB |
+| `hcp` | 338.3 | 111.0 | 227.3 | 100,000 | 32.3 MB |
+| | | | | **Total** | **229.1 MB** |
+
+Against a 500 MB ceiling that leaves **271 MB of headroom**, so T052 is buildable as designed and
+the R1 storage risk is closed. The compute half of R1 is untouched by this and is still open until
+T052 actually runs.
+
+**Indexes dominate, and that is the number worth remembering.** They are 51% of
+`sales_transaction`'s footprint and 67% of `hcp`'s — the four-column `COLLATE "C"` composite-match
+index costs more than the rows it indexes. Two consequences: an estimate derived from column widths
+alone would have been out by a factor of three and would have called this infeasible; and the
+cheapest lever, if a later feature does run short of space, is index selection rather than row
+count.
+
+The projection excludes findings, WAL, and any orphaned test schema. A full run over the volume
+dataset produces findings in the low tens of thousands, well inside the headroom, but the sweep
+(T028) still matters — three abandoned volume schemas would exhaust it.
+
 ---
 
 ## D9 — Master-data versioning *(new in revision 2)*

@@ -31,14 +31,14 @@ Single project: `src/dq/`, `tests/`, `migrations/` at repository root, per plan.
 
 **Purpose**: Project initialization and the two facts that must be known before anything is built.
 
-- [ ] T001 Create the directory tree from plan.md § Source Code under `src/dq/`, `tests/`, `migrations/`
-- [ ] T002 Initialize the uv project in `pyproject.toml` with Python 3.12, SQLAlchemy Core, Alembic, psycopg[binary], Pydantic v2, pytest, ruff, mypy
-- [ ] T003 [P] Configure ruff and mypy strict in `pyproject.toml`
-- [ ] T004 [P] Register pytest markers `volume` and `golden` in `pyproject.toml`, and exclude `volume` from the default run
-- [ ] T005 Implement settings loading in `src/dq/config/settings.py`: connection URLs per role, `DQ_SCHEMA_PREFIX`, fail-fast on a missing required variable
-- [ ] T006 [P] Create the model-ID config placeholder in `src/dq/config/models.py` — unused until Feature 3, but the module must exist so no ID is ever inlined later
-- [ ] T007 **Establish the volume-test storage budget** and record it in `specs/001-data-foundation/research.md` § D8: measure per-row bytes for `sales_transaction` and `hcp` with their indexes, extrapolate to 1M + 100K rows, and state plainly whether the SC-008 test fits inside the 500 MB free tier
-- [ ] T008 [P] Add the seven `DQ_*_URL` entries to `.env.example` with a note that they do not exist until T012 runs
+- [X] T001 Create the directory tree from plan.md § Source Code under `src/dq/`, `tests/`, `migrations/`
+- [X] T002 Initialize the uv project in `pyproject.toml` with Python 3.12, SQLAlchemy Core, Alembic, psycopg[binary], Pydantic v2, pytest, ruff, mypy
+- [X] T003 [P] Configure ruff and mypy strict in `pyproject.toml`
+- [X] T004 [P] Register pytest markers `volume` and `golden` in `pyproject.toml`, and exclude `volume` from the default run
+- [X] T005 Implement settings loading in `src/dq/config/settings.py`: connection URLs per role, `DQ_SCHEMA_PREFIX`, fail-fast on a missing required variable
+- [X] T006 [P] Create the model-ID config placeholder in `src/dq/config/models.py` — unused until Feature 3, but the module must exist so no ID is ever inlined later
+- [X] T007 **Establish the volume-test storage budget** and record it in `specs/001-data-foundation/research.md` § D8: measure per-row bytes for `sales_transaction` and `hcp` with their indexes, extrapolate to 1M + 100K rows, and state plainly whether the SC-008 test fits inside the 500 MB free tier
+- [X] T008 [P] Add the seven `DQ_*_URL` entries to `.env.example` with a note that they do not exist until T012 runs
 
 **Checkpoint**: T007 may return "the volume test is infeasible on free tier". That is a valid,
 useful outcome — resolve it (drop indexes for the test, lower the stated target, or accept paid
@@ -54,34 +54,34 @@ compute) before T052 rather than discovering it there.
 
 ### Migration framework and roles
 
-- [ ] T009 Initialize Alembic and make `migrations/env.py` schema-prefix aware, reading `DQ_SCHEMA_PREFIX` and setting `version_table_schema` accordingly
-- [ ] T010 [P] Implement schema-name resolution in `src/dq/db/schemas.py` — the single place `${P}` is applied
-- [ ] T011 Implement the per-role connection factory in `src/dq/db/engine.py`, including the `SELECT current_user` assertion and the `SET LOCAL` pinning of `TimeZone`, `DateStyle`, `search_path`, and `statement_timeout` (research.md D10)
-- [ ] T012 Write the bootstrap migration creating the seven roles (`dq_migrate`, `dq_ingest`, `dq_author`, `dq_engine`, `dq_readonly`, `dq_sandbox`, `dq_publish`) with `LOGIN NOINHERIT` and passwords supplied as bound parameters — **skipped entirely when `DQ_SCHEMA_PREFIX` is non-empty**, because roles are cluster-global and a prefixed test run must never create or drop them
+- [X] T009 Initialize Alembic and make `migrations/env.py` schema-prefix aware, reading `DQ_SCHEMA_PREFIX` and setting `version_table_schema` accordingly
+- [X] T010 [P] Implement schema-name resolution in `src/dq/db/schemas.py` — the single place `${P}` is applied
+- [X] T011 Implement the per-role connection factory in `src/dq/db/engine.py`, including the `SELECT current_user` assertion and the `SET LOCAL` pinning of `TimeZone`, `DateStyle`, `search_path`, and `statement_timeout` (research.md D10)
+- [X] T012 Write the bootstrap migration creating the seven roles (`dq_migrate`, `dq_ingest`, `dq_author`, `dq_engine`, `dq_readonly`, `dq_sandbox`, `dq_publish`) with `LOGIN NOINHERIT` and passwords supplied as bound parameters — **skipped entirely when `DQ_SCHEMA_PREFIX` is non-empty**, because roles are cluster-global and a prefixed test run must never create or drop them
 
 ### Schema
 
-- [ ] T013 Migration creating the five schemas `${P}commercial`, `${P}dq`, `${P}workflow`, `${P}audit`, `${P}sandbox`
-- [ ] T014 [P] Define `source_system` and `data_batch` in `src/dq/domain/commercial.py` per data-model.md, including the `record_count >= 0` check
-- [ ] T015 [P] Define the four master tables (`hcp`, `hco`, `product`, `territory`) in `src/dq/domain/commercial.py` as append-only version chains: `(source_system_id, source_key, valid_from)` unique, `is_deleted`, `batch_id`, **no `valid_to`**
-- [ ] T016 [P] Define `territory_alignment` in `src/dq/domain/commercial.py` with a `daterange` `[from, to)` and **no exclusion constraint** — an overlap must be insertable or FR-019 cannot be tested
-- [ ] T017 [P] Define `sales_transaction` in `src/dq/domain/commercial.py` with `product_key`/`hcp_key` as **text, not foreign keys**, and `quantity numeric(18,4)`
-- [ ] T018 Add all indexes from data-model.md, including `COLLATE "C"` on the four FR-016b composite-match columns. **Done when** `tests/integration/test_schema_indexes.py` asserts each expected index exists by name and that the composite-match columns carry `COLLATE "C"`
-- [ ] T019 Add the immutability trigger rejecting `UPDATE`/`DELETE` on `data_batch` **and on every batch member table** — the container alone is not enough (FR-003b)
-- [ ] T020 [P] Define `rule` and `rule_version` in `src/dq/domain/dq.py`, with all four declarations `NOT NULL` (FR-005) and `UNIQUE (rule_id, version_no)`
-- [ ] T021 [P] Define `feed_expectation` in `src/dq/domain/dq.py`
-- [ ] T022 [P] Define `rule_run` and `rule_run_rule_version` in `src/dq/domain/dq.py`, including `correlation_id`, `as_of_date`, `reference_watermark`, `session_settings`, and the `COMPLETED_WITH_ERRORS` status value
-- [ ] T023 Define `finding` in `src/dq/domain/dq.py` with nullable `batch_id`, non-null `scope_key`, `UNIQUE (rule_version_id, scope_key, subject_key)`, and both `CHECK` constraints from data-model.md
-- [ ] T024 Add the immutability trigger on `finding` — it is the audit-bearing table
-- [ ] T025 Add the `BEFORE INSERT` trigger on `rule_version` enforcing all eight predicate validation rules from contracts/rule-definition.md, including `pg_proc.provolatile = 'i'` for every expression function, **and rejecting similarity functions by name** (`levenshtein`, `similarity`, `soundex`, `metaphone`, `difference`, `word_similarity`, and the pg_trgm `%` and `<->` operators) per FR-016d — a deterministic `levenshtein(a,b) < 3` is IMMUTABLE and passes every other check. **This must be in the database, not only in Python** — `dq_author` can insert here directly
-- [ ] T026 Apply the full grant matrix and `ALTER DEFAULT PRIVILEGES` for every schema and verb from data-model.md; issue **no** `audit`/`workflow` grant to `dq_readonly` (deferred to Feature 3)
+- [X] T013 Migration creating the five schemas `${P}commercial`, `${P}dq`, `${P}workflow`, `${P}audit`, `${P}sandbox`
+- [X] T014 [P] Define `source_system` and `data_batch` in `src/dq/domain/commercial.py` per data-model.md, including the `record_count >= 0` check
+- [X] T015 [P] Define the four master tables (`hcp`, `hco`, `product`, `territory`) in `src/dq/domain/commercial.py` as append-only version chains: `(source_system_id, source_key, valid_from)` unique, `is_deleted`, `batch_id`, **no `valid_to`**
+- [X] T016 [P] Define `territory_alignment` in `src/dq/domain/commercial.py` with a `daterange` `[from, to)` and **no exclusion constraint** — an overlap must be insertable or FR-019 cannot be tested
+- [X] T017 [P] Define `sales_transaction` in `src/dq/domain/commercial.py` with `product_key`/`hcp_key` as **text, not foreign keys**, and `quantity numeric(18,4)`
+- [X] T018 Add all indexes from data-model.md, including `COLLATE "C"` on the four FR-016b composite-match columns. **Done when** `tests/integration/test_schema_indexes.py` asserts each expected index exists by name and that the composite-match columns carry `COLLATE "C"`
+- [X] T019 Add the immutability trigger rejecting `UPDATE`/`DELETE` on `data_batch` **and on every batch member table** — the container alone is not enough (FR-003b)
+- [X] T020 [P] Define `rule` and `rule_version` in `src/dq/domain/dq.py`, with all four declarations `NOT NULL` (FR-005) and `UNIQUE (rule_id, version_no)`
+- [X] T021 [P] Define `feed_expectation` in `src/dq/domain/dq.py`
+- [X] T022 [P] Define `rule_run` and `rule_run_rule_version` in `src/dq/domain/dq.py`, including `correlation_id`, `as_of_date`, `reference_watermark`, `session_settings`, and the `COMPLETED_WITH_ERRORS` status value
+- [X] T023 Define `finding` in `src/dq/domain/dq.py` with nullable `batch_id`, non-null `scope_key`, `UNIQUE (rule_version_id, scope_key, subject_key)`, and both `CHECK` constraints from data-model.md
+- [X] T024 Add the immutability trigger on `finding` — it is the audit-bearing table
+- [X] T025 Add the `BEFORE INSERT` trigger on `rule_version` enforcing all eight predicate validation rules from contracts/rule-definition.md, including `pg_proc.provolatile = 'i'` for every expression function, **and rejecting similarity functions by name** (`levenshtein`, `similarity`, `soundex`, `metaphone`, `difference`, `word_similarity`, and the pg_trgm `%` and `<->` operators) per FR-016d — a deterministic `levenshtein(a,b) < 3` is IMMUTABLE and passes every other check. **This must be in the database, not only in Python** — `dq_author` can insert here directly
+- [X] T026 Apply the full grant matrix and `ALTER DEFAULT PRIVILEGES` for every schema and verb from data-model.md; issue **no** `audit`/`workflow` grant to `dq_readonly` (deferred to Feature 3)
 
 ### Test harness
 
-- [ ] T027 Implement the test schema lifecycle in `tests/conftest.py`: create `test_<YYYYMMDDHHMMSS>_<uuid6>_*` schemas, apply migrations into them, drop on teardown
-- [ ] T028 Implement the stale-schema sweep in `tests/conftest.py`, parsing the **timestamp embedded in the schema name** (PostgreSQL records no schema creation time) and skipping any prefix listed in the live-session registry
-- [ ] T029 [P] Write the role conformance test in `tests/integration/test_role_conformance.py` asserting the `dq_*` roles present equal exactly the seven in constitution v1.1.0 — an eighth role must fail the build
-- [ ] T030 [P] Write the role privilege test in `tests/integration/test_role_privileges.py`: as `dq_engine`, `INSERT`/`UPDATE`/`DELETE`/`CREATE TABLE` against `commercial` must each raise `InsufficientPrivilege`; as `dq_author`, `SELECT` on `commercial` must fail. **Each test must attempt the operation** — one that passes because nothing was attempted proves nothing
+- [X] T027 Implement the test schema lifecycle in `tests/conftest.py`: create `test_<YYYYMMDDHHMMSS>_<uuid6>_*` schemas, apply migrations into them, drop on teardown
+- [X] T028 Implement the stale-schema sweep in `tests/conftest.py`, parsing the **timestamp embedded in the schema name** (PostgreSQL records no schema creation time) and skipping any prefix listed in the live-session registry
+- [X] T029 [P] Write the role conformance test in `tests/integration/test_role_conformance.py` asserting the `dq_*` roles present equal exactly the seven in constitution v1.1.0 — an eighth role must fail the build
+- [X] T030 [P] Write the role privilege test in `tests/integration/test_role_privileges.py`: as `dq_engine`, `INSERT`/`UPDATE`/`DELETE`/`CREATE TABLE` against `commercial` must each raise `InsufficientPrivilege`; as `dq_author`, `SELECT` on `commercial` must fail. **Each test must attempt the operation** — one that passes because nothing was attempted proves nothing
 
 **Checkpoint**: Foundation ready. T029 and T030 must pass before any user story begins — they are
 the structural enforcement of constitution principles II and VI.
