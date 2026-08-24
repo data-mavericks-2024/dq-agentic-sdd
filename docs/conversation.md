@@ -153,3 +153,105 @@ allows writes anyway. **The database role is the real control; the allowlist is 
 Feature 1 has zero agents by design — Postgres schema, rule registry, SQL rule runner, seeded defect
 data. No LangGraph, no LLM calls, no UI. It's the trustworthy baseline everything else is measured
 against.
+
+---
+
+## Session 2 — 2026-08-24
+
+### Supabase project created
+
+| | |
+|---|---|
+| Name | `FDB` |
+| Ref | `ogsxigcineqwhjxocqmp` |
+| Region | `ap-southeast-1` (Singapore) |
+| Plan | Free, `t4g.nano` |
+| State | Healthy, no migrations, no backups |
+
+**One project, not two.** Recommendation had been two (dev + test) for blast-radius isolation, but
+one is a defensible choice given the compensating control below. Decision recorded; not revisited.
+
+### Consequence: schema isolation becomes load-bearing
+
+With a single project, integration tests share the database with development. Isolation is by
+schema and must be airtight:
+
+- Each test session creates `test_<uuid>`, migrates into it, drops it on teardown.
+- **A session-start sweep drops stale `test_*` schemas** left by crashed runs. This is not cleanup
+  hygiene — it is the compensating control for sharing one project. Design it explicitly.
+- No test writes outside its own schema. A test touching the curated schema is a defect.
+
+### Supabase has THREE connection strings, not two
+
+This corrects Session 1, which assumed a simple direct/pooled split.
+
+| Mode | Host / port | Use |
+|---|---|---|
+| Direct | `db.<ref>.supabase.co:5432` | Preferred for stateful work — **IPv6-only on free tier** |
+| Session pooler | `...pooler.supabase.com:5432` | IPv4-safe equivalent; one connection per client, so prepared statements and advisory locks work |
+| Transaction pooler | `...pooler.supabase.com:6543` | Short read-only queries **only** |
+
+Supabase made direct connections IPv6-only on free tier (IPv4 is a paid add-on). On an IPv4-only
+network the direct string simply times out — **use the session pooler as the direct equivalent.**
+Never the transaction pooler for Alembic or the checkpointer; it breaks them silently rather than
+with an error.
+
+Env vars restructured accordingly: `SUPABASE_DB_STATEFUL_URL` (direct *or* session pooler, whichever
+is reachable) and `SUPABASE_DB_POOLED_URL` (transaction pooler). The old
+`SUPABASE_DEV_*` / `SUPABASE_TEST_*` split is gone.
+
+### Files updated
+
+- `.env.example` — restructured for one project, three connection modes, `TEST_SCHEMA_PREFIX`
+- `CLAUDE.md` — connection-mode table, rewritten testing section, new env var table
+- `docs/sdd-playbook.md` — plan prompt now says one project and three connection strings; testing
+  strategy includes the sweep; Open Items updated
+
+### Also worth knowing
+
+Free-tier projects pause after roughly a week of inactivity. A connection failure after a quiet week
+is usually a paused project, not a broken config — check the dashboard before debugging.
+
+The dashboard shows a branch selector (`main` / PRODUCTION) and "No branches". Supabase database
+branching would be a natural fit for constitution principle 4 (simulate-before-propose) — worth
+checking whether it's available on free tier when Feature 5 comes around.
+
+### Database probe results — both open questions answered
+
+Added `scripts/check_db.py` (run: `uv run --with "psycopg[binary]" python scripts/check_db.py`).
+It reads `.env`, never prints the password, and verifies connection mode, prepared statements,
+advisory locks, and `CREATE ROLE` in one pass.
+
+```
+SUPABASE_DB_STATEFUL_URL: session pooler (IPv4-safe)  aws-0-ap-southeast-1.pooler.supabase.com:5432
+connected: PostgreSQL 17.6
+prepared statements: OK
+advisory locks:      OK
+CREATE ROLE:         OK -- principle 6 is implementable
+```
+
+**Confirmed:**
+- The network is **IPv4-only** — the direct connection is unreachable. The **session pooler**
+  (port 5432 on the pooler host) is the stateful connection for Alembic and `PostgresSaver`.
+- Prepared statements and advisory locks both work on the session pooler, as expected.
+- `CREATE ROLE` is permitted → **constitution principle 6 is implementable** as written. This was
+  the one that could have forced a redesign.
+- Server is **PostgreSQL 17.6**, not 16.
+
+### Connection-string gotchas hit along the way
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `uv` not recognized (again) | VS Code's cached PATH — same as Session 1 | `$env:Path = "$env:USERPROFILE\.local\bin;$env:Path"` |
+| `missing "=" after "aws-0-..."`, host printed as `?` | The URL wasn't a valid URI — `[YOUR-PASSWORD]` placeholder left in, or an unencoded special character in the password | Keep the placeholder in the URL and set `SUPABASE_DB_PASSWORD` separately; the script percent-encodes and substitutes it |
+
+Note: the session pooler requires the username to carry the project ref
+(`postgres.ogsxigcineqwhjxocqmp`), unlike the direct connection. Easy to lose when hand-editing.
+
+### Still open
+
+- [ ] Phase 1 `/speckit-constitution` not yet run; `.specify/memory/constitution.md` is still the
+      unfilled template
+- [ ] RLS on the curated schema — on or off, and what compensates if off
+- [ ] Steward authentication for Streamlit, and how that identity reaches the audit trail
+- [ ] Where async agent runs execute, and crash recovery from checkpoint

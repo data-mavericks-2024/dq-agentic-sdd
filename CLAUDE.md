@@ -76,11 +76,22 @@ any call with a large `max_tokens` so long investigations do not hit HTTP timeou
 Violating any of these produces silent runtime failures that look like random flakiness rather than
 configuration errors.
 
-**1. Direct connection, not pooled, for anything stateful.**
-Alembic, the LangGraph `PostgresSaver`, and any code relying on prepared statements or advisory
-locks MUST use the direct (non-pooled) connection string. Supabase's transaction-mode pooler breaks
-both. The pooled endpoint is acceptable only for short read-only queries — and the code paths that
-use it must be documented explicitly.
+**1. Never use the transaction pooler for anything stateful.**
+Supabase exposes three connection strings. Alembic, the LangGraph `PostgresSaver`, and any code
+relying on prepared statements or advisory locks MUST use `SUPABASE_DB_STATEFUL_URL`:
+
+| Mode | Port / host | Use |
+|---|---|---|
+| Direct | `5432` on `db.<ref>.supabase.co` | Preferred for stateful work — **IPv6-only on free tier** |
+| Session pooler | `5432` on `...pooler.supabase.com` | IPv4-safe equivalent of direct; one connection per client, so prepared statements and advisory locks work |
+| Transaction pooler | `6543` on `...pooler.supabase.com` | Short read-only queries **only** — breaks prepared statements and advisory locks |
+
+**Confirmed for this machine (2026-08-24):** the network is IPv4-only, so the **session pooler** is
+the working stateful connection — `aws-0-ap-southeast-1.pooler.supabase.com:5432`. Prepared
+statements and advisory locks both verified working on it. Server is PostgreSQL 17.6.
+
+The failure mode of getting this wrong is not an error message — it is intermittent, misleading
+breakage. Verify with `uv run --with "psycopg[binary]" python scripts/check_db.py`.
 
 **2. The service-role key never reaches application code.**
 It is not referenced from agent code, from FastAPI request handlers, or from Streamlit. It exists
@@ -100,15 +111,23 @@ them is not implementable here.
 
 ## Testing
 
-`testcontainers` is unavailable, so integration tests run against a dedicated Supabase **test
-project**, not the dev project.
+`testcontainers` is unavailable (no Docker), and there is **one** Supabase project — so integration
+tests run against the same database as dev. Isolation is by schema, and it has to be airtight.
 
-- Each test session creates a uniquely named schema, applies Alembic migrations into it, and drops
-  it on teardown — so concurrent runs and CI cannot collide.
+- Each test session creates `test_<uuid>`, applies Alembic migrations into it, and drops it on
+  teardown. Concurrent runs cannot collide.
+- **A session-start sweep drops stale `test_*` schemas** older than a few hours, left behind by
+  crashed runs. Without it, a hard-killed test run silently accumulates schemas in the working
+  database. This is not optional — it is the compensating control for having one project.
+- No test ever writes outside its own schema. A test that touches the curated schema is a defect,
+  not a slow test.
 - Unit tests for rules, tools, and graph nodes run against a stubbed model with no network access.
 - Golden-scenario tests are the only tests permitted to call a real model. Mark them separately
   (`-m golden`) so the default test command stays fast and free.
-- Every test crosses the network. Expect this to dominate suite runtime and budget accordingly.
+- Every test crosses the network to Singapore. Expect this to dominate suite runtime.
+
+Free-tier projects pause after roughly a week of inactivity. A sudden connection failure after a
+quiet week is usually a paused project, not a broken config — check the dashboard first.
 
 ---
 
@@ -134,13 +153,18 @@ Never commit real values. `.env` is gitignored; `.env.example` documents the sha
 | Variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | Claude API |
-| `SUPABASE_DEV_DIRECT_URL` | dev, direct — Alembic, checkpointer, anything stateful |
-| `SUPABASE_DEV_POOLED_URL` | dev, pooled — short read-only queries only |
-| `SUPABASE_TEST_DIRECT_URL` | test project, direct — integration tests |
+| `SUPABASE_PROJECT_REF` | `ogsxigcineqwhjxocqmp` — not a secret |
+| `SUPABASE_DB_STATEFUL_URL` | Alembic, checkpointer, anything stateful (direct or session pooler) |
+| `SUPABASE_DB_POOLED_URL` | transaction pooler, short read-only queries only |
+| `TEST_DATABASE_URL` | integration tests — same database, stateful connection |
+| `TEST_SCHEMA_PREFIX` | `test_` |
 | `DQ_READONLY_URL` | investigation agents (`dq_readonly` role) |
 | `DQ_SANDBOX_URL` | sandbox simulation (`dq_sandbox` role) |
 | `DQ_PUBLISH_URL` | governed publish (`dq_publish` role), post-approval only |
 | `DQ_MIGRATE_URL` | Alembic (`dq_migrate` role) |
+
+The four `DQ_*_URL` roles don't exist yet — they're created by the Feature 1 migration that defines
+them. Leave them blank until then.
 
 The service-role key deliberately has no entry here. If you find yourself needing one, that is a
 design error, not a missing variable.

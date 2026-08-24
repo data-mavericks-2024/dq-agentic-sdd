@@ -252,7 +252,8 @@ Stack: Python 3.12, uv, LangGraph for orchestration, LangChain tool bindings onl
 Model: Claude via the Anthropic API using the official `anthropic` Python SDK. Use `claude-sonnet-5` for investigation/impact/remediation reasoning nodes and `claude-haiku-4-5` for cheap classification and summarization nodes. Pin model IDs in a single config module and never inline them; the reasoning tier must be swappable to `claude-opus-5` by config change alone. Use adaptive thinking (`thinking={"type": "adaptive"}`) on reasoning nodes, and stream any call with a large max_tokens so long investigations do not hit HTTP timeouts.
 
 Supabase specifics — treat these as hard constraints, not preferences:
-- Two Supabase projects: dev and test. There is NO local Postgres, NO Docker, and NO `supabase start` available on the development machine. Do not propose any design that requires them.
+- ONE Supabase project (free tier, ap-southeast-1). There is NO local Postgres, NO Docker, and NO `supabase start` available on the development machine. Do not propose any design that requires them.
+- Supabase exposes three connection strings and they are not interchangeable: direct (`5432` on `db.<ref>.supabase.co`, IPv6-only on free tier), session pooler (`5432` on the pooler host, IPv4-safe, one connection per client), and transaction pooler (`6543`, breaks prepared statements and advisory locks). Alembic and the checkpointer use the stateful connection — direct if the network has IPv6, otherwise the session pooler. Never the transaction pooler.
 - All schema is owned by Alembic migrations. Schema is never changed through the Supabase dashboard. Migrations run under a dedicated migration role.
 - Use the DIRECT (non-pooled) connection string for Alembic, for the LangGraph PostgresSaver, and for anything relying on prepared statements or advisory locks. Transaction-mode pooling breaks these. The pooled endpoint may be used only for short read-only queries; document exactly which code paths use which.
 - Define four database roles with explicit, non-inherited grants: `dq_readonly` (investigation), `dq_sandbox` (write access to the sandbox schema only), `dq_publish` (write access to curated commercial tables, reachable only after approval), and `dq_migrate` (Alembic). Show the GRANT statements in data-model.md.
@@ -260,9 +261,11 @@ Supabase specifics — treat these as hard constraints, not preferences:
 - Decide and document whether Row Level Security is enabled on the curated schema, and if so how the server-side roles interact with it. If you disable RLS, say why and what compensates.
 - Schema layout: separate schemas for curated commercial data, DQ metadata, agent/workflow state, audit, and the remediation sandbox. Say which role can touch which schema.
 
-Testing strategy — `testcontainers` is NOT available:
-- Integration tests run against the dedicated Supabase test project.
-- Each test session creates a uniquely named schema, applies Alembic migrations into it, and drops it on teardown, so concurrent runs and CI cannot collide.
+Testing strategy — `testcontainers` is NOT available and there is only ONE Supabase project:
+- Integration tests run against the same Supabase database as development. Isolation is by schema and must be airtight.
+- Each test session creates `test_<uuid>`, applies Alembic migrations into it, and drops it on teardown, so concurrent runs and CI cannot collide.
+- A session-start sweep drops stale `test_*` schemas older than a few hours, left behind by crashed runs. This is the compensating control for sharing one project; design it explicitly rather than treating it as cleanup hygiene.
+- No test writes outside its own schema. A test that touches the curated schema is a defect.
 - Unit tests for rules, tools, and graph nodes run against a stubbed model with no network access.
 - Golden-scenario tests are the only tests permitted to call a real model, and they must be separately markable so the default test command is fast and free.
 - Quantify the network round-trip cost this imposes and state the CI time budget.
@@ -424,7 +427,9 @@ Before we spec the human-approval and publish feature, write docs/threat-model.m
 
 ## Open items
 
-- [ ] Create the two Supabase projects (dev, test) and capture both direct and pooled connection strings
+- [x] Supabase project created — `FDB`, free tier, ap-southeast-1. One project, not two; schema isolation plus a stale-schema sweep is the compensating control
+- [x] Connection mode confirmed — network is IPv4-only, **session pooler** is the stateful connection; prepared statements and advisory locks verified. PostgreSQL 17.6
+- [x] `CREATE ROLE` confirmed permitted — constitution principle 6 is implementable
 - [ ] Decide whether Row Level Security is enabled on the curated schema, and what compensates if not
 - [ ] Decide how stewards authenticate to Streamlit, and how that identity reaches the audit trail
 - [ ] Decide where async agent runs execute (FastAPI background task vs. a separate worker process) and how a crashed run is recovered from its checkpoint
