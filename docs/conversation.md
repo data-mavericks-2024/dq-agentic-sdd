@@ -248,10 +248,63 @@ CREATE ROLE:         OK -- principle 6 is implementable
 Note: the session pooler requires the username to carry the project ref
 (`postgres.ogsxigcineqwhjxocqmp`), unlike the direct connection. Easy to lose when hand-editing.
 
+### Phase 1 complete — constitution ratified
+
+`.specify/memory/constitution.md` is now **v1.0.0**, ratified 2026-08-24. All eleven principles
+written in full, with a rationale paragraph each explaining what breaks if the principle is dropped.
+
+**Gotcha worth remembering:** `/speckit-constitution` returned *"Unknown command"* at first. Cause:
+Claude Code loads skills at **session start**, and the skills were installed by `specify init`
+partway through the session. Fix is to restart Claude Code — not to reinstall Spec Kit.
+
+Structure beyond the eleven principles:
+
+- **Platform & Data Constraints** — single system of record, Alembic owns schema, session-scoped
+  connection discipline, schema separation, the no-Docker reality, model IDs in one config module.
+- **Development Workflow & Quality Gates** — spec-before-plan, clarification is mandatory
+  (overriding Spec Kit's "optional" label), constitution check at plan time, golden scenarios
+  before agents, per-feature quality bars.
+- **Governance** — supremacy, amendment procedure, semantic versioning policy, two-point compliance
+  review. Notably: amendments weakening principles II, IV, VI, or XI must state the compensating
+  control that replaces the removed guarantee.
+
+`CLAUDE.md` is explicitly declared **subordinate** to the constitution — where they conflict, the
+constitution wins and CLAUDE.md gets corrected.
+
+### Phase 2 complete — roadmap written
+
+`docs/roadmap.md` — seven features, dependency-ordered, each with scope, explicit out-of-scope,
+user-visible outcome, dependencies, and **the constitution principles it first puts into force**.
+That last addition gives the plan-time constitution check a starting point instead of a blank page.
+
+Matches the playbook's target slices. Decisions recorded in it:
+
+- **Feature 6's UI line is drawn explicitly** — a pending-proposals list, the simulation result, and
+  approve/reject with a required justification field. Nothing else. It exists because an approval
+  gate with no way to approve isn't shippable. Everything richer is Feature 7.
+- **Nothing before Feature 6 can write to curated data**, enforced by role grants created in
+  Feature 1 rather than by convention.
+- **Feature 2's clustering definition ("what is the same issue?") is flagged as the highest-risk
+  unresolved decision** — two competent engineers build different systems from the same spec. Must
+  be settled in `/speckit-clarify`, not during implementation.
+- **Feature 4 depends on lineage that may not exist yet.** If the real downstream reports and KPIs
+  aren't identified by then, the feature shrinks to the lineage that genuinely exists rather than
+  inventing a model of it.
+
 ### Still open
 
-- [ ] Phase 1 `/speckit-constitution` not yet run; `.specify/memory/constitution.md` is still the
-      unfilled template
 - [ ] RLS on the curated schema — on or off, and what compensates if off
 - [ ] Steward authentication for Streamlit, and how that identity reaches the audit trail
 - [ ] Where async agent runs execute, and crash recovery from checkpoint
+- [ ] Identify real downstream reports/KPIs for Feature 4 lineage
+- [ ] Confirm source systems and feed cadence for the timeliness rules
+
+### Next: Feature 1
+
+```powershell
+git checkout -b 001-data-foundation     # Spec Kit does NOT do this for you
+```
+
+Then `/speckit-specify` with the Feature 1 prompt from `docs/sdd-playbook.md`. Feature 1 has zero
+agents by design — schema, rule registry, SQL rule runner, seeded defect data, and the four database
+roles. No LangGraph, no model calls, no UI.

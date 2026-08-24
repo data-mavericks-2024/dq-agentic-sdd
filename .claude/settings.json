@@ -42,7 +42,8 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git branch:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\resolve-template.ps1 constitution-template -Json)"
     ],
     "deny": [
       "Read(./.env)",
