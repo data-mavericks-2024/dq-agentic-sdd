@@ -299,12 +299,38 @@ Matches the playbook's target slices. Decisions recorded in it:
 - [ ] Identify real downstream reports/KPIs for Feature 4 lineage
 - [ ] Confirm source systems and feed cadence for the timeliness rules
 
-### Next: Feature 1
+### Feature 1 — spec written and clarified
 
-```powershell
-git checkout -b 001-data-foundation     # Spec Kit does NOT do this for you
-```
+Branch `001-data-foundation`. `specs/001-data-foundation/spec.md` + `checklists/requirements.md`.
+Quality checklist **16/16 passing**.
 
-Then `/speckit-specify` with the Feature 1 prompt from `docs/sdd-playbook.md`. Feature 1 has zero
-agents by design — schema, rule registry, SQL rule runner, seeded defect data, and the four database
-roles. No LangGraph, no model calls, no UI.
+`/speckit-specify` produced four prioritised user stories (detection → rule governance →
+reproducibility → querying), 27 functional requirements, 7 edge cases, 9 assumptions. It left three
+`[NEEDS CLARIFICATION]` markers rather than guessing.
+
+`/speckit-clarify` resolved those three and found two more. Five decisions, all recorded in the
+spec's `## Clarifications` section:
+
+| # | Decision |
+|---|---|
+| 1 | **A data batch is one physical arrival** — one file or load event, immutable once recorded. A correction arrives as a *new* batch. Reproducibility then comes for free. |
+| 2 | **Duplicate HCP detection is two rules**, not one: NPI collision at High severity (near-certain), deterministic composite match on name + postal code + licence state at Medium (suspected). No fuzzy or probabilistic matching — that would breach principle I. |
+| 3 | **A feed expectation catalogue is in scope** (source, cadence, delivery window, active date range). Inferring expectations from history cannot detect a feed that never arrived. |
+| 4 | **Target scale: ~1M sales transactions/month, ~100K HCPs, ~5K products.** Forces set-based rule evaluation from day one — critical because the database is across a network in Singapore. |
+| 5 | **A full rule run over one month completes in under 10 minutes.** Tight enough that a per-record design cannot pass. |
+
+**Two defects the clarification pass exposed in the draft**, both fixed:
+
+- `FR-010` assumed every finding points at a failing record. A missing feed has no record, and a
+  volume deviation is a property of a period. Added `FR-010a` for aggregate-subject findings.
+- `SC-001` promised "zero false positives" — but once the Medium-severity composite duplicate rule
+  was accepted, a deliberately seeded namesake pair became an *expected* finding. `SC-001` now
+  asserts set equality against an expected finding set.
+
+That second one is the argument for never skipping `/speckit-clarify`: the contradiction was
+invisible until a decision made it visible.
+
+### Next
+
+`/speckit-plan` — the big one. Prompt is in `docs/sdd-playbook.md`. Then the constitution
+stress-test prompt immediately after, before `/speckit-tasks`.

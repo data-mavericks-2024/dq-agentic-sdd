@@ -43,7 +43,10 @@
       "Bash(git log:*)",
       "Bash(git branch:*)",
       "Bash(git show:*)",
-      "PowerShell(.specify\\\\scripts\\\\powershell\\\\resolve-template.ps1 constitution-template -Json)"
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\resolve-template.ps1 constitution-template -Json)",
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\resolve-template.ps1 spec-template -Json)",
+      "PowerShell(Get-ChildItem specs -Recurse -File | ForEach-Object { \"{0,8}  {1}\" -f $_.Length, $_.FullName.Replace\\(\"$PWD\\\\\",\"\"\\) }; \"--- feature.json ---\"; Get-Content .specify\\\\feature.json -Raw; \"--- branch ---\"; git rev-parse --abbrev-ref HEAD; \"--- uncommitted ---\"; git --no-pager status --short)",
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\check-prerequisites.ps1 -Json -PathsOnly)"
     ],
     "deny": [
       "Read(./.env)",
