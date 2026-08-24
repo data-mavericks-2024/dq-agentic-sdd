@@ -18,6 +18,23 @@
 - Q: What data volume must the rule engine be designed to handle? → A: Realistic mid-size — ~1M sales transactions per month, ~100K HCP master records, ~5K products.
 - Q: How long may a full rule run over one month of data take before a steward would consider it broken? → A: Under 10 minutes.
 
+### Session 2026-08-24 — amendments arising from the implementation plan
+
+Two requirements could not be satisfied as originally written. Both were found by an independent
+review of the plan and are corrected here rather than worked around in design.
+
+- **FR-014 / Edge Cases — rule evaluation errors are per rule, not per record.** The original text
+  required recording a rule as errored "for that record". Evaluating rules as set operations — which
+  is what makes the 10-minute target at 1M rows reachable — means one malformed value aborts the
+  whole evaluation, so per-record error attribution is not achievable. The edge case now describes
+  per-rule granularity, and adds the compensating requirement that a partly-evaluated run must not
+  report as clean.
+- **FR-003c / FR-003d added — master data needs a time dimension.** The original model gave master
+  records no notion of versions, so a routine monthly re-delivery would have appeared as a complete
+  set of duplicates and FR-016a/FR-016b would have flagged the entire master file. It also left rule
+  evaluation joining master data that grows over time, which would have made re-evaluating a
+  historical period produce different answers — silently contradicting FR-011 and SC-003.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Steward sees exactly what failed (Priority: P1)
@@ -135,9 +152,13 @@ independently and confirm counts reconcile against the per-batch summary.
   see that one caused the other.
 - **A batch is empty.** A feed arrives containing zero records. This must be distinguishable from
   "the feed did not arrive" — they have different causes and different remediations.
-- **A rule predicate itself errors** on malformed data (for example, a date comparison against a
-  non-date value). The run must record the rule as errored for that record rather than silently
-  passing it, since a silently-passing broken rule is indistinguishable from clean data.
+- **A rule itself errors** on malformed data (for example, a date comparison against a non-date
+  value). The run must record that rule as errored and must not report the batch as clean, since a
+  silently-skipped rule is indistinguishable from clean data. *Error granularity is per rule, not
+  per record:* a rule that cannot be evaluated contributes no findings for the whole run, including
+  records that would legitimately have failed it. The run's status must therefore distinguish
+  "completed" from "completed with errors", and the batch summary must report errored rules
+  explicitly rather than by their absence.
 - **Two rules disagree in effect** — one flags a record as invalid, another flags the same record as
   a duplicate. Both findings stand; the system does not attempt to reconcile them.
 - **Two genuine namesakes practise at the same location.** The composite-match rule (FR-016b) will
@@ -172,6 +193,13 @@ independently and confirm counts reconcile against the per-batch summary.
   identified by source system and arrival timestamp.
 - **FR-003b**: A data batch MUST be immutable once recorded. Records MUST NOT be added to, removed
   from, or altered within an existing batch; corrected data arriving later MUST form a new batch.
+- **FR-003c**: When a source system re-delivers a master record it has sent before, the system MUST
+  treat it as a **new version of the same record**, not as a second record. Every master record
+  MUST therefore carry the date from which that version applies, and the system MUST be able to
+  determine which version applied on any given date.
+- **FR-003d**: Rule evaluation MUST resolve master data as of the period being evaluated, and MUST
+  be repeatable: re-evaluating a historical period after further data has been delivered MUST
+  produce the same result as the original evaluation.
 
 **Rule registry**
 
@@ -189,17 +217,18 @@ independently and confirm counts reconcile against the per-batch summary.
 
 **Rule execution**
 
-- **FR-009**: System MUST execute all active rules for a specified data batch in a single rule run.
+- **FR-009**: System MUST execute, in a single rule run, all active rules applicable to a specified
+  scope — either a data batch or a source system and period.
 - **FR-010**: System MUST persist one finding per failing record per rule, capturing the failing
   record's identity, the offending value, the rule, and the rule version that produced the verdict.
 - **FR-010a**: Some rules fail against an aggregate rather than a record — a feed that never arrived
   has no record to point at, and a volume deviation is a property of a period, not a row. System
   MUST support findings whose subject is a source-and-period or a batch rather than an individual
   record, carrying the observed and expected values in place of an offending field value.
-- **FR-011**: Rule execution MUST be idempotent: re-running the same rules against the same batch
+- **FR-011**: Rule execution MUST be idempotent: re-running the same rules against the same scope
   MUST NOT create duplicate findings.
-- **FR-012**: System MUST be able to execute a rule run against any historical batch, not only the
-  most recent one.
+- **FR-012**: System MUST be able to execute a rule run against any historical scope, not only the
+  most recent batch.
 - **FR-013**: System MUST record, per rule run, which rules were evaluated, at which versions, over
   which batch, and when.
 - **FR-014**: When a rule predicate cannot be evaluated for a record, System MUST record that
@@ -246,8 +275,12 @@ independently and confirm counts reconcile against the per-batch summary.
 
 - **FR-023**: Users MUST be able to query findings filtered by domain, rule, severity, batch, and
   time window, in any combination.
-- **FR-024**: System MUST produce a per-batch summary reporting failure counts by domain, by rule,
-  and by severity.
+- **FR-024**: System MUST produce a summary for any evaluated scope — a data batch, or a source
+  system and period — reporting failure counts by domain, by rule, and by severity.
+- **FR-024a**: A summary MUST include findings whose subject is a batch or a source-and-period, not
+  only findings against individual records. A feed that never arrived MUST be visible in a summary.
+  It is the failure least likely to be noticed by other means, because nothing looks wrong — the
+  numbers simply go quiet.
 - **FR-025**: Summary counts MUST reconcile exactly with the underlying findings they summarise.
 
 **Boundaries**
@@ -292,15 +325,15 @@ independently and confirm counts reconcile against the per-batch summary.
 ### Measurable Outcomes
 
 - **SC-001**: Against the seeded dataset, the finding set produced by a full rule run is exactly
-  equal to the expected finding set — every deliberately injected defect across all eight rule
+  equal to the expected finding set — every deliberately injected defect across all **nine** rule
   families is detected, and no finding is produced that is not in the expected set. The namesake
   pair required by the edge cases counts as an expected finding of FR-016b, not as a false positive.
 - **SC-002**: Every finding names the failing record, the offending value, the rule, and the rule
   version — verifiable on 100% of findings with no missing attribution.
-- **SC-003**: Re-running the rules over an already-evaluated batch produces an identical finding set
+- **SC-003**: Re-running the rules over an already-evaluated scope produces an identical finding set
   and zero duplicate findings.
-- **SC-004**: A steward can retrieve all findings for a given batch, filtered by any combination of
-  domain, rule, severity, and time window, and the counts reconcile exactly with the per-batch
+- **SC-004**: A steward can retrieve all findings for a given scope, filtered by any combination of
+  domain, rule, severity, and time window, and the counts reconcile exactly with the scope
   summary.
 - **SC-005**: A rule's threshold can be changed and the change takes effect on the next run without
   altering the interpretation of any finding produced before the change.
@@ -312,7 +345,12 @@ independently and confirm counts reconcile against the per-batch summary.
   transactions against 100,000 HCP records — completes in under 10 minutes.
 - **SC-009**: A missing feed is reported for a source and period in which no data ever arrived,
   including a feed that has never arrived since being declared — demonstrating that absence is
-  detected from the expectation catalogue rather than inferred from observed history.
+  detected from the expectation catalogue rather than inferred from observed history. The missing
+  feed is visible in the summary for that source and period, not only in a findings query.
+- **SC-010**: Re-evaluating a historical period after further data has been delivered produces the
+  same finding set as the original evaluation. This is verified by running the rules over a period,
+  delivering a later batch that changes master data, re-running the earlier period, and asserting
+  set equality.
 
 ## Assumptions
 
@@ -345,6 +383,23 @@ independently and confirm counts reconcile against the per-batch summary.
   single-day gaps.
 - **Rule runs are triggered manually or on a schedule external to this feature.** Orchestration of
   when runs happen is not in scope.
+- **The expected finding set is derived from the seed generator, not maintained by hand.** SC-001
+  asserts set *equality*, so a hand-written expected list would drift the first time row counts or
+  the random seed change, and the failure would look like an engine defect. The generator emits the
+  expected set as it injects each defect.
+- **The seed generator guarantees composite-key uniqueness among non-defect HCP records.** FR-016b
+  matches on last name, first initial, postal code, and licence state — a small key space in which
+  independently generated synthetic records will collide by coincidence. Each accidental collision
+  would be an unexpected finding, failing set equality at random. The one intended collision is the
+  namesake pair required by the edge cases.
+- **The seeded dataset spans at least three consecutive periods.** FR-022 (period-over-period
+  deviation) needs a prior period to compare against, and FR-021b (late or missing feed) needs at
+  least one period where an expected feed is absent. A single-batch dataset cannot exercise either,
+  so it cannot satisfy SC-001's claim to cover all rule families.
+- **The rule families are nine checks, not eight.** The original phrasing counted eight families
+  before FR-016 was split into an NPI-collision rule and a composite-match rule. The nine are
+  FR-015, FR-016a, FR-016b, FR-017, FR-018, FR-019, FR-020, FR-021b, FR-022. For a criterion
+  asserting exact set equality the list is written down rather than counted.
 
 ## Dependencies
 

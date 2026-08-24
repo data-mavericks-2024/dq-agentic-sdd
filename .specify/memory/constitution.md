@@ -1,5 +1,29 @@
 <!--
-SYNC IMPACT REPORT
+SYNC IMPACT REPORT — v1.1.0 (2026-08-24)
+Version change: 1.0.0 → 1.1.0
+Bump rationale: MINOR. Principle VI materially expanded — the role list grew from four capabilities
+to seven named roles, was declared exhaustive, and gained a conformance-test requirement. No
+principle was removed or redefined in a way that invalidates a compliant design, so not MAJOR.
+
+Trigger: the Feature 1 implementation plan required a role for the deterministic rule engine that
+none of the four listed capabilities covered. An independent review then found two further unnamed
+roles the same plan silently needed — rule registration and source-data ingestion — establishing
+this as a role-model gap rather than a one-off deviation.
+
+Principle VI changes:
+  - Added `dq_ingest`, `dq_author`, `dq_engine` alongside the original four
+  - Named all seven explicitly with their capability, replacing a four-item prose list
+  - Declared the list exhaustive; an eighth role now requires an amendment
+  - Required a conformance test asserting the database's dq_* roles equal this list
+
+Why exhaustiveness: the original list named four capabilities without stating whether it was
+closed. That ambiguity allowed a plan to add a role and argue compliance. Closing the list turns the
+question from interpretation into procedure.
+
+Downstream artifacts updated in the same change: specs/001-data-foundation/plan.md,
+data-model.md, research.md.
+
+--- PRIOR REPORT (v1.0.0) ---
 Version change: (unversioned template) → 1.0.0
 Bump rationale: Initial ratification. No prior version existed; all placeholders replaced with
 concrete governance for a regulated pharmaceutical commercial-data platform.
@@ -116,12 +140,21 @@ proves nothing.
 ### VI. Least-Privilege Data Access
 
 Distinct database roles MUST exist for distinct capabilities, and no role may inherit another's
-privileges:
+privileges. The following list is **exhaustive**:
 
-- investigation agents connect under a read-only role
-- remediation simulation connects under a sandbox-write role
-- publishing connects under a separate role, reachable only after approval
-- migrations connect under a dedicated migration role
+| Role | Capability |
+|---|---|
+| `dq_migrate` | Schema migrations. Owns all schemas. The only role holding DDL. |
+| `dq_ingest` | Loading source data into curated commercial tables. No read of quality metadata. |
+| `dq_author` | Registering and versioning data-quality rules. No access to commercial data. |
+| `dq_engine` | Deterministic rule execution. Reads commercial data, writes findings only. |
+| `dq_readonly` | Investigation agents. Read-only everywhere it is granted. |
+| `dq_sandbox` | Remediation simulation. Writes only to the sandbox schema. |
+| `dq_publish` | Governed publish of approved corrections. Reachable only after approval. |
+
+Introducing an eighth role is an amendment to this constitution, not a planning decision. A
+conformance test MUST assert that the set of `dq_*` roles present in the database equals this list,
+so that adding one fails the build until this document is amended.
 
 The Supabase service-role key and any superuser credential MUST NOT be available to agent code, to
 request handlers serving investigation reads, or to the user-interface process. They exist only in
@@ -130,6 +163,11 @@ the migration tooling's environment.
 **Rationale:** Principle II states the rule; this principle is the mechanism that makes it true
 even when everything above the database misbehaves. If an investigation agent physically cannot
 issue a write, prompt injection into a data value cannot cause one.
+
+The list is exhaustive and the conformance test enforced because the failure mode here is gradual.
+No single feature ever proposes dismantling least privilege; each proposes one more role for one
+good reason, and the principle erodes by accumulation. Requiring an amendment makes each addition
+visible and deliberate.
 
 ### VII. PII/PHI Discipline
 
@@ -275,4 +313,4 @@ compliance by evidence — a passing test, a role grant, a code path — not by 
 principles day to day. It is subordinate to this document; where the two conflict, this document
 governs and `CLAUDE.md` MUST be corrected.
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-24 | **Last Amended**: 2026-08-24
+**Version**: 1.1.0 | **Ratified**: 2026-08-24 | **Last Amended**: 2026-08-24

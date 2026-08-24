@@ -46,7 +46,11 @@
       "PowerShell(.specify\\\\scripts\\\\powershell\\\\resolve-template.ps1 constitution-template -Json)",
       "PowerShell(.specify\\\\scripts\\\\powershell\\\\resolve-template.ps1 spec-template -Json)",
       "PowerShell(Get-ChildItem specs -Recurse -File | ForEach-Object { \"{0,8}  {1}\" -f $_.Length, $_.FullName.Replace\\(\"$PWD\\\\\",\"\"\\) }; \"--- feature.json ---\"; Get-Content .specify\\\\feature.json -Raw; \"--- branch ---\"; git rev-parse --abbrev-ref HEAD; \"--- uncommitted ---\"; git --no-pager status --short)",
-      "PowerShell(.specify\\\\scripts\\\\powershell\\\\check-prerequisites.ps1 -Json -PathsOnly)"
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\check-prerequisites.ps1 -Json -PathsOnly)",
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\setup-plan.ps1 -Json)",
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\setup-tasks.ps1 -Json)",
+      "PowerShell(.specify\\\\scripts\\\\powershell\\\\check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks)",
+      "PowerShell($t = Get-Content specs\\\\001-data-foundation\\\\tasks.md; $ids = $t | Select-String -Pattern '^- \\\\[ \\\\] \\(T\\\\d+[a-z]?\\)' | ForEach-Object { $_.Matches[0].Groups[1].Value }; \"total tasks : $\\($ids.Count\\)\"; \"duplicate ids: $\\(\\($ids | Group-Object | Where-Object Count -gt 1\\).Name -join ', '\\)\"; $bad = $t | Select-String -Pattern '^- \\\\[ \\\\] ' | Where-Object { $_.Line -notmatch '^- \\\\[ \\\\] T\\\\d+[a-z]? ' }; \"malformed   : $\\($bad.Count\\)\"; $new = @\\('T031a','T033a','T035a','T049a','T055a','T055b','T066a'\\); \"new present : $\\(\\(\\($new | Where-Object { $ids -contains $_ }\\) -join ', '\\)\\)\")"
     ],
     "deny": [
       "Read(./.env)",

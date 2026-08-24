@@ -330,7 +330,228 @@ spec's `## Clarifications` section:
 That second one is the argument for never skipping `/speckit-clarify`: the contradiction was
 invisible until a decision made it visible.
 
+### Feature 1 — plan and design artifacts generated
+
+`/speckit-plan` produced `plan.md`, `research.md`, `data-model.md`, `contracts/` (2 files),
+`quickstart.md`.
+
+**Central design decision:** a rule is a stored, versioned, parameterised SQL `SELECT` returning
+failing subjects; the engine wraps it in one `INSERT … SELECT … ON CONFLICT DO NOTHING`. One
+statement per rule, not per record — that is what makes the 10-minute target reachable across the
+network link to Singapore. Idempotency becomes a `UNIQUE` constraint rather than application logic,
+so it survives a run killed mid-flight.
+
+**Constitution finding — a fifth role was needed.** The constitution names four roles
+(`dq_readonly`, `dq_sandbox`, `dq_publish`, `dq_migrate`). None fits the deterministic rule runner,
+which needs `SELECT` on `commercial` plus `INSERT` on `dq.finding`. Added **`dq_engine`**, recorded
+in `plan.md` § Complexity Tracking. This extends principle VI rather than weakening it — the engine
+is not an agent, holds no write access to `commercial`, and no role inherits another. No
+constitution amendment required.
+
+**Two deliberate absences of constraints in the schema**, both load-bearing:
+
+- `sales_transaction` stores master-data references as **text, not foreign keys**. A FK would reject
+  the orphaned row at insert, making FR-017 permanently undetectable.
+- `hcp.npi` is **nullable and unvalidated**. Same reason for FR-015.
+
+General principle recorded in `data-model.md`: *constraints protect referential truth; rules detect
+data-quality defects.* Where they conflict, the rule wins — the defect must be able to land in the
+table.
+
+**Determinism is enforced at rule-registration time**, not by review: a predicate containing
+`now()`, `random()`, or an unordered `LIMIT` is rejected before it can enter the registry. That is
+what makes principle I structural. A predicate with `now()` would silently break FR-011 in a way no
+ordinary test catches.
+
+**Three risks flagged in `research.md`:** free-tier `t4g.nano` may not meet SC-008 at all; 500 MB
+storage could be exhausted by test schemas plus volume data; and the predicate denylist is
+incomplete by nature — mitigated by running each rule twice and asserting set equality, which
+catches the class rather than enumerating members.
+
+### Constitution stress-test — independent subagent review, plan FAILED the gate
+
+An independent subagent (no memory of authoring the plan) audited all eleven principles against
+`plan.md`, `research.md`, `data-model.md`, and both contracts. It found **five blocking
+contradictions** and several structural weaknesses. The gate did its job — do not skip this step on
+later features.
+
+**Blocking — the design is not implementable as written:**
+
+1. **A missing-feed finding has no batch to attach to.** `finding.batch_id` is `NOT NULL` and
+   `run_rules(batch_id)` is batch-scoped, but FR-021d/SC-009 require reporting a feed that *never
+   arrived*. `quickstart.md` Scenario 6 papered over it by running `FEED-MISSING` against an
+   unrelated batch. Worse: `batch_id` is in the idempotency unique key, so the same missing period
+   re-fires against every subsequent batch.
+2. **The FR-019 overlap defect cannot be injected.** A GiST `EXCLUDE` constraint on
+   `territory_alignment` makes overlaps uninsertable, and no staging table exists — so SC-001's
+   "every injected defect is detected" cannot cover it. This also broke the schema's own stated rule
+   (*constraints protect referential truth; rules detect defects*) two sections after stating it.
+3. **Schema prefixing and `predicate_sql` cannot both work.** Predicates hard-code
+   `commercial.hcp`; tests need `test_<uuid>_commercial`; and the contract forbids string
+   interpolation. At most three of those four can hold.
+4. **Master data has no current-version concept.** `hcp`/`product`/etc. carry only `batch_id`, so a
+   monthly master re-delivery lands a second full copy — and FR-016a/FR-016b would flag the entire
+   master file as duplicates of its own prior delivery. The two rules that motivated a whole
+   clarification round cannot ship.
+5. **Reproducibility is claimed but not delivered.** `research.md` D3 argued the predicate result
+   set is fixed because batch and rule version are immutable. False: FR-017, FR-018, FR-020, FR-022
+   all join to master data that is **not** batch-scoped and grows with every later delivery. SC-003
+   is violated in production while every test passes.
+
+**Structural weaknesses:**
+
+- **The double-run determinism test cannot detect what it was built for.** `ON CONFLICT DO NOTHING`
+  silently discards a second run's differing `offending_value` for the same `subject_key`, so the
+  persisted set is identical *by construction*. The test must compare predicate output, not
+  persisted findings.
+- **`CURRENT_DATE` is missing from the non-determinism denylist** — along with `LOCALTIMESTAMP`,
+  `statement_timestamp()`, and single-arg `age()`. `CURRENT_DATE` is the first thing a timeliness
+  rule author would reach for. Fix: replace the denylist with a `pg_proc.provolatile = 'i'`
+  allowlist over the parse tree, enforced by a `BEFORE INSERT` trigger on `rule_version`.
+- **Roles are cluster-global**, which schema-prefixing structurally cannot isolate. A prefixed test
+  migration either collides on `CREATE ROLE` or grants privileges on test schemas to the *shared dev
+  roles*.
+- **The stale-schema sweep is unimplementable as specified** — `pg_namespace` has no creation
+  timestamp. Needs the timestamp embedded in the schema name or a registry table.
+- **No `dq_ingest` or `dq_author` role.** Seeding writes `commercial` (only `dq_publish` can) and
+  rule registration writes `dq.rule_version` (only `dq_migrate` can) — so Principle I's enforcement
+  runs on a connection that can bypass it.
+- **Summary double-counts across rule versions**, and SC-004's reconciliation check cannot catch it.
+- **FR-014 is per-record in the spec, per-rule in the plan.** Set-based execution cannot report a
+  per-record evaluation error.
+
+**Governance:** the reviewer argued `dq_engine` needs a constitution amendment to v1.1.0, on the
+grounds that Principle VI's four-role list includes *migrations* — not an agent — so
+"those are the agent roles" does not hold. Accepted as the stronger reading. Their alternative is
+better than the amendment alone: a CI test asserting `SELECT rolname FROM pg_roles WHERE rolname
+LIKE 'dq\_%'` equals a list held in the constitution, so any sixth role fails the build until the
+constitution is amended.
+
+**What the review confirmed as sound:** the `dq_engine`-cannot-write-`commercial` grant plus a test
+that attempts the write and asserts refusal; omitting the FK on `sales_transaction` and the
+constraint on `hcp.npi` so defects can land; snapshotting `severity` onto `finding`;
+`numeric(18,4)`; server-side `generate_series` for the volume test; and the honest labelling of
+Principle VII as unenforced. The set-based one-statement-per-rule architecture is right — the
+criticism is of premises it rests on, not the technique.
+
+### Two decisions taken, then revision 2 of the design
+
+**Decision 1 — master data becomes append-only version chains** (`valid_from`, natural key,
+`is_deleted`, no `valid_to`), with predicates resolving master data as-of the period being
+evaluated. Chosen because one change fixes three defects: duplicate rules flagging re-delivered
+master records; reproducibility being false; and Feature 6's governed publish colliding with batch
+immutability (a correction becomes a new version, not an `UPDATE`). The alternatives — an
+`is_current` flag or a latest-batch view — are simpler but *mutable*, so a historical re-run sees a
+different world and two of the three defects survive.
+
+**Decision 2 — constitution amended to v1.1.0** rather than recording a deviation. Principle VI now
+names all **seven** roles (`dq_migrate`, `dq_ingest`, `dq_author`, `dq_engine`, `dq_readonly`,
+`dq_sandbox`, `dq_publish`), declares the list exhaustive, and requires a conformance test asserting
+the database's `dq_*` roles equal that list. An eighth role fails the build until the constitution is
+amended again — turning precedent erosion from a matter of restraint into a build failure.
+
+### Revision 2 — all five blocking defects fixed
+
+| Fix | Defect closed |
+|---|---|
+| Master version chains + `as_of_date` + `reference_watermark`, both recorded on `rule_run` | Duplicate rules flagged the whole master file; reproducibility was false in production while tests passed |
+| `finding.batch_id` nullable, `scope_key` added, uniqueness rekeyed; runs take a **scope**, not a batch | A never-arrived feed had no batch to attach to, and aggregate findings re-fired per batch |
+| GiST exclusion constraint removed from `territory_alignment` | FR-019's overlap defect was uninsertable, so SC-001 could not cover it |
+| Predicates use **unqualified** table names; engine pins `search_path` per run | Schema prefixing, schema-qualified predicates, and no-interpolation were mutually exclusive |
+| Determinism enforced by a `BEFORE INSERT` trigger requiring `provolatile = 'i'` | The denylist omitted `CURRENT_DATE` and ran only in application code that `dq_author` bypasses |
+
+**Also fixed:** roles 5 → 7 with a bootstrap migration (roles are cluster-global and cannot be
+schema-isolated); sweep now uses a timestamp embedded in the schema name (`pg_namespace` has no
+creation time, so the original design was unimplementable); `COLLATE "C"` on composite-match
+columns; immutability triggers extended to batch member rows and `finding`; `correlation_id` on
+`rule_run`; `COMPLETED_WITH_ERRORS` status; summary counts per rule rather than per rule version;
+`CHECK` giving SC-002 a mechanism; GUC pinning; advisory lock per scope+rule.
+
+**Sharpest catch worth remembering:** the determinism test in revision 1 could never have failed.
+It compared *persisted findings*, and `ON CONFLICT DO NOTHING` discards a second run's differing
+row — so the stored set was identical by construction, not by determinism. It now compares predicate
+output under varied query plans.
+
+### Spec amended too — two requirements were unsatisfiable
+
+- **FR-014 / Edge Cases:** error granularity is per rule, not per record. Set-based execution aborts
+  the whole statement on one malformed value. Compensated by `COMPLETED_WITH_ERRORS` status and an
+  explicit errored-rules line in the summary.
+- **FR-003c / FR-003d added:** master data needs a time dimension, and historical re-evaluation must
+  reproduce. Plus SC-010 to verify it, and assumptions covering generator-derived expected sets,
+  composite-key uniqueness among non-defect HCPs, and a three-period seed.
+
+### Feature 1 — tasks generated, then remediated by `/speckit-analyze`
+
+`specs/001-data-foundation/tasks.md` — **83 tasks** across 7 phases, organised by user story.
+(76 generated, 7 added during analyze remediation using suffixed IDs so nothing renumbered.)
+
+| Phase | Tasks | |
+|---|---|---|
+| 1 Setup | T001–T008 | includes the storage-budget answer before anything depends on it |
+| 2 Foundational | T009–T030 | schema, 7 roles, triggers, test harness — blocks all stories |
+| 3 US1 detection | T031–T052 (+4 suffixed) | 🎯 MVP |
+| 4 US2 rule governance | T053–T058 (+2 suffixed) | |
+| 5 US3 reproducibility | T059–T064 | |
+| 6 US4 query & summary | T065–T070 (+1 suffixed) | |
+| 7 Polish | T071–T076 | |
+
+Test tasks are included and mandatory — constitution v1.1.0 § Development Workflow requires contract
+tests, integration tests, and a golden set for every feature.
+
+**Ordering decisions that matter more than they look:**
+
+- **T007 before T052.** T007 computes whether 1M rows plus indexes even fit in 500 MB. If the volume
+  test is infeasible, that is a Phase 1 discovery, not a Phase 3 one.
+- **T029/T030 before Phase 3.** They are the structural enforcement of principles II and VI. A user
+  story built before they pass is built on an unverified foundation.
+- **T050 before T033.** The expected finding set must be generated before the test asserting
+  equality against it.
+- **T064 sits in US3 but guards US1's rules.** A predicate written without binding
+  `:reference_watermark` returns plausible results and passes every US1 test, then silently breaks
+  historical reproducibility. Pull it forward if rule authoring starts before Phase 5.
+
+**Largest parallel block:** T040–T048, the nine rule definitions — nine YAML files, no
+interdependencies.
+
+**MVP scope:** Phases 1–3. That is a shippable deterministic data-quality engine with zero agents —
+exactly the trustworthy baseline the roadmap requires before agent work begins.
+
+### `/speckit-analyze` — 0 critical, 97.9% coverage, 11 fixes applied
+
+Cross-artifact consistency gate found **no CRITICAL issues** and one requirement with zero task
+coverage. All findings above LOW were remediated.
+
+**The one that mattered — C1 (HIGH):** `summarise_batch(batch_id)` filtered on `batch_id`, which is
+**null for every aggregate finding**. A feed that never arrived would therefore appear in no summary
+at all — visible only to someone who thought to query for it. That is the same class of defect the
+plan review caught twice: passes every test, hides the most consequential real-world case. A steward
+watching a pipeline whose numbers simply go quiet is exactly who this feature exists to protect.
+
+Fixed by `summarise_scope(scope)` including `source_period` findings covering the scope's source and
+period, plus FR-024a and a test (T066a).
+
+**Other fixes:**
+
+| Finding | Fix |
+|---|---|
+| I1 — batch/scope terminology drift in FR-009/011/012, SC-003 | Reworded to "scope" |
+| C2 — FR-016d ("no fuzzy matching") unenforced | T025 now rejects `levenshtein`, `similarity`, pg_trgm operators by name — a deterministic `levenshtein(a,b) < 3` is IMMUTABLE and passed every other check. Negative test T031a |
+| C3 — SC-007 untested | T055a, with a guard asserting no `src/dq/engine/` file changed |
+| C4 — SC-009 untested | T033a |
+| C5 — feed expectation catalogue unexercised | T049a seeds it, T055b tests end-dating |
+| D1 — validation logic implemented twice | T035a asserts the Python validator and the DB trigger reject the same corpus |
+| N2 — no "rule is wrong, not the data" seed scenario | Added to T050. Constitution X requires it before agents exist; Feature 1 is where seed data lives |
+| I2 | `plan.md` said "eight rule families" in two places — now nine |
+| I3 | SC-010 moved to the end of Success Criteria |
+| A1 | T018 given a named verifying test |
+
+Note I2 was mis-located in the analysis report — it was in `plan.md`, not `spec.md`; the spec uses
+FRs rather than a bullet list.
+
+**Verified after edits:** 83 tasks, no duplicate IDs, no malformed checklist lines, all seven new
+task IDs present.
+
 ### Next
 
-`/speckit-plan` — the big one. Prompt is in `docs/sdd-playbook.md`. Then the constitution
-stress-test prompt immediately after, before `/speckit-tasks`.
+`/speckit-implement` — start with the MVP scope, Phases 1–3.
