@@ -395,7 +395,7 @@ Before we spec the human-approval and publish feature, write docs/threat-model.m
 
 ## The discipline that makes this work
 
-1. **One feature = one branch = one spec.** Spec Kit creates the branch; don't merge features into one spec.
+1. **One feature = one branch = one spec.** Spec Kit does *not* create the branch — `create-new-feature.ps1` creates `specs/NNN-slug/` and records the active feature in `.specify/feature.json` plus `$env:SPECIFY_FEATURE`. Create the matching branch yourself (`git checkout -b 001-data-foundation`). Don't merge features into one spec.
 2. **Never skip `/speckit-clarify`.** Spec Kit marks it optional; in this domain, spec ambiguity becomes wrong agent behavior that looks plausible.
 3. **`/speckit-specify` contains zero technology.** The moment "LangGraph", "Supabase", or "Streamlit" appears in a spec, the spec has become a plan.
 4. **The constitution is a living gate.** Re-run the compliance prompt at each `/speckit-plan` and each post-implementation check.
