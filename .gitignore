@@ -1,0 +1,17 @@
+# Claude Code local state — may contain credentials or machine-specific permissions.
+# The skills under .claude/skills/ ARE committed: they are the Spec Kit commands.
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Environment / secrets — Supabase connection strings and the Anthropic API key live here
+.env
+.env.*
+!.env.example
