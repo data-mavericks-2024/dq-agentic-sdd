@@ -1,0 +1,1254 @@
+<title>Steward Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+
+<style>
+/* ------------------------------------------------------------------ *
+   Tokens. Light palette on bare :root; dark redefines tokens only.
+ * ------------------------------------------------------------------ */
+:root {
+  --paper:      #e9ecef;
+  --surface:    #ffffff;
+  --surface-2:  #f3f5f7;
+  --sunken:     #dfe4e9;
+  --ink:        #131a21;
+  --ink-soft:   #5a6672;
+  --ink-faint:  #8993a0;
+  --rule:       #c9d0d8;
+  --rule-soft:  #dfe4e9;
+  --accent:     #2f5d7c;
+  --accent-ink: #ffffff;
+  --live:       #0e7c86;
+  --live-wash:  #e2f1f2;
+
+  --crit:       #9e2b25;
+  --crit-wash:  #f7e6e5;
+  --warn:       #b4762a;
+  --warn-wash:  #faf0e0;
+  --ok:         #2f6b4f;
+  --ok-wash:    #e5f0ea;
+
+  --shadow:     0 1px 2px rgba(19,26,33,.06), 0 8px 24px rgba(19,26,33,.06);
+  --radius:     3px;
+
+  --f-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --f-ui:      "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #0e1318;
+    --surface:    #161d24;
+    --surface-2:  #1b232b;
+    --sunken:     #0a0e12;
+    --ink:        #e4e9ee;
+    --ink-soft:   #97a3af;
+    --ink-faint:  #6b7783;
+    --rule:       #2a343e;
+    --rule-soft:  #212a33;
+    --accent:     #7fb3d3;
+    --accent-ink: #0e1318;
+    --live:       #4fc3cc;
+    --live-wash:  #10333a;
+
+    --crit:       #e2827c;
+    --crit-wash:  #3a1e1d;
+    --warn:       #dbab63;
+    --warn-wash:  #382914;
+    --ok:         #6fbf95;
+    --ok-wash:    #14301f;
+
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #0e1318;
+  --surface:    #161d24;
+  --surface-2:  #1b232b;
+  --sunken:     #0a0e12;
+  --ink:        #e4e9ee;
+  --ink-soft:   #97a3af;
+  --ink-faint:  #6b7783;
+  --rule:       #2a343e;
+  --rule-soft:  #212a33;
+  --accent:     #7fb3d3;
+  --accent-ink: #0e1318;
+  --live:       #4fc3cc;
+  --live-wash:  #10333a;
+
+  --crit:       #e2827c;
+  --crit-wash:  #3a1e1d;
+  --warn:       #dbab63;
+  --warn-wash:  #382914;
+  --ok:         #6fbf95;
+  --ok-wash:    #14301f;
+
+  --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--f-display); font-weight: 500; text-wrap: balance; margin: 0; }
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+
+:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.num  { font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ *
+   Shell
+ * ------------------------------------------------------------------ */
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 20px; height: 56px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; z-index: 40;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand-mark {
+  font-family: var(--f-display); font-size: 19px; font-weight: 600;
+  letter-spacing: -.01em;
+}
+.brand-sub {
+  font-size: 10px; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 600;
+}
+.topbar-spacer { flex: 1; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+  font-weight: 600; padding: 3px 8px; border-radius: var(--radius);
+  border: 1px solid transparent; white-space: nowrap;
+}
+.chip-synthetic { background: var(--warn-wash); color: var(--warn); border-color: currentColor; }
+.chip-crit { background: var(--crit-wash); color: var(--crit); }
+.chip-warn { background: var(--warn-wash); color: var(--warn); }
+.chip-ok   { background: var(--ok-wash);   color: var(--ok); }
+.chip-neutral { background: var(--surface-2); color: var(--ink-soft); border-color: var(--rule); }
+.chip-live { background: var(--live-wash); color: var(--live); }
+
+.iconbtn {
+  background: none; border: 1px solid var(--rule); border-radius: var(--radius);
+  width: 32px; height: 32px; cursor: pointer; color: var(--ink-soft);
+  display: grid; place-items: center; font-size: 14px;
+}
+.iconbtn:hover { border-color: var(--live); color: var(--live); }
+
+.who { display: flex; align-items: center; gap: 9px; }
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-size: 11px; font-weight: 600;
+}
+.who-name { font-size: 12.5px; font-weight: 600; line-height: 1.2; }
+.who-role { font-size: 10.5px; color: var(--ink-faint); line-height: 1.2; }
+
+.body { display: flex; flex: 1; align-items: flex-start; }
+
+/* ------------------------------------------------------------------ *
+   Pipeline rail — numbered because this genuinely is a sequence
+ * ------------------------------------------------------------------ */
+.rail {
+  width: 268px; flex: none; align-self: stretch;
+  background: var(--surface); border-right: 1px solid var(--rule);
+  padding: 18px 0 28px;
+  position: sticky; top: 56px; max-height: calc(100vh - 56px); overflow-y: auto;
+}
+.rail-head {
+  padding: 0 18px 12px;
+  font-size: 10px; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 600;
+}
+.stage {
+  display: grid; grid-template-columns: 26px 1fr; gap: 11px;
+  width: 100%; text-align: left; background: none; border: 0;
+  padding: 9px 18px; cursor: pointer; position: relative;
+  border-left: 2px solid transparent;
+}
+.stage:hover { background: var(--surface-2); }
+.stage[aria-current="true"] { background: var(--surface-2); border-left-color: var(--live); }
+.stage-n {
+  font-family: var(--f-mono); font-size: 11px; font-weight: 500;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--rule); color: var(--ink-faint);
+  display: grid; place-items: center; margin-top: 1px;
+}
+.stage[aria-current="true"] .stage-n { border-color: var(--live); color: var(--live); }
+.stage-done .stage-n { background: var(--ok-wash); border-color: var(--ok); color: var(--ok); }
+.stage-t { font-size: 13px; font-weight: 500; line-height: 1.3; }
+.stage[aria-current="true"] .stage-t { font-weight: 600; }
+.stage-meta {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-faint); margin-top: 3px; display: flex; gap: 6px; align-items: center;
+}
+.dot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
+.dot-built { background: var(--ok); }
+.dot-planned { background: var(--rule); border: 1px solid var(--ink-faint); }
+
+.rail-note {
+  margin: 16px 18px 0; padding-top: 14px; border-top: 1px solid var(--rule-soft);
+  font-size: 11.5px; color: var(--ink-soft); line-height: 1.5;
+}
+.rail-note b { color: var(--ink); font-weight: 600; }
+.legend { display: flex; gap: 14px; margin-top: 10px; font-size: 10.5px; color: var(--ink-faint); }
+.legend span { display: flex; align-items: center; gap: 5px; }
+
+/* ------------------------------------------------------------------ *
+   Main
+ * ------------------------------------------------------------------ */
+.main { flex: 1; min-width: 0; padding: 26px 30px 70px; max-width: 1180px; }
+
+.screen { display: none; }
+.screen.on { display: block; animation: rise .22s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .screen.on { animation: none; }
+  * { transition: none !important; }
+}
+
+.eyebrow {
+  font-size: 10.5px; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 600; margin-bottom: 7px;
+}
+.h-screen { font-size: 27px; letter-spacing: -.015em; line-height: 1.15; }
+.lede { color: var(--ink-soft); margin-top: 8px; max-width: 66ch; font-size: 14.5px; }
+.screen-head { margin-bottom: 22px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.card + .card { margin-top: 16px; }
+.card-head {
+  padding: 13px 16px; border-bottom: 1px solid var(--rule-soft);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.card-title { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.card-body { padding: 16px; }
+.spacer { flex: 1; }
+
+/* metric strip */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 1px;
+  background: var(--rule); border: 1px solid var(--rule); border-radius: var(--radius);
+  overflow: hidden; margin-bottom: 20px; }
+.metric { background: var(--surface); padding: 13px 16px; }
+.metric-k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+.metric-v { font-family: var(--f-mono); font-size: 25px; font-weight: 500; margin-top: 4px; letter-spacing: -.02em; }
+.metric-n { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
+.metric-v.crit { color: var(--crit); }
+.metric-v.warn { color: var(--warn); }
+
+/* tables */
+.tw { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 600; padding: 9px 14px;
+  border-bottom: 1px solid var(--rule); white-space: nowrap; background: var(--surface-2);
+}
+td { padding: 11px 14px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+.rowlink { cursor: pointer; }
+.rowlink:hover td { background: var(--surface-2); }
+td.r, th.r { text-align: right; }
+
+.sev { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
+.sev::before { content: ""; width: 3px; height: 13px; border-radius: 1px; background: currentColor; }
+.sev-high { color: var(--crit); }
+.sev-med  { color: var(--warn); }
+.sev-low  { color: var(--ink-soft); }
+
+.score { font-family: var(--f-mono); font-weight: 600; font-size: 15px; }
+
+/* callout */
+.note {
+  border-left: 2px solid var(--accent); background: var(--surface-2);
+  padding: 12px 15px; border-radius: 0 var(--radius) var(--radius) 0; font-size: 13px;
+  color: var(--ink-soft); line-height: 1.55;
+}
+.note b { color: var(--ink); font-weight: 600; }
+.note-ok   { border-left-color: var(--ok);   background: var(--ok-wash); }
+.note-warn { border-left-color: var(--warn); background: var(--warn-wash); }
+.note-crit { border-left-color: var(--crit); background: var(--crit-wash); }
+.note + .note { margin-top: 10px; }
+
+/* key-value grid */
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px 22px; }
+.kv-k { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+.kv-v { font-family: var(--f-mono); font-size: 12.5px; margin-top: 2px; word-break: break-all; }
+
+pre.sql {
+  font-family: var(--f-mono); font-size: 12px; line-height: 1.6;
+  background: var(--sunken); border: 1px solid var(--rule-soft);
+  border-radius: var(--radius); padding: 13px 15px; margin: 0; overflow-x: auto;
+  color: var(--ink-soft);
+}
+pre.sql b { color: var(--ink); font-weight: 600; }
+
+/* hypotheses */
+.hyp { border: 1px solid var(--rule); border-radius: var(--radius); padding: 15px; background: var(--surface); }
+.hyp + .hyp { margin-top: 12px; }
+.hyp-top { display: flex; align-items: baseline; gap: 12px; margin-bottom: 9px; flex-wrap: wrap; }
+.hyp-rank {
+  font-family: var(--f-mono); font-size: 11px; font-weight: 600; color: var(--ink-faint);
+  border: 1px solid var(--rule); border-radius: var(--radius); padding: 1px 6px;
+}
+.hyp-h { font-family: var(--f-display); font-size: 17px; font-weight: 500; flex: 1; min-width: 240px; }
+.conf { display: flex; align-items: center; gap: 8px; }
+.conf-bar { width: 76px; height: 5px; background: var(--sunken); border-radius: 3px; overflow: hidden; }
+.conf-fill { height: 100%; background: var(--live); }
+.conf-n { font-family: var(--f-mono); font-size: 12px; font-weight: 600; }
+.hyp-body { color: var(--ink-soft); font-size: 13.5px; margin-bottom: 11px; max-width: 74ch; }
+.hyp-sub { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; margin-bottom: 6px; }
+.ev-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.ev {
+  font-family: var(--f-mono); font-size: 11.5px; cursor: pointer;
+  background: var(--live-wash); color: var(--live); border: 1px solid transparent;
+  border-radius: var(--radius); padding: 2px 7px;
+}
+.ev:hover { border-color: var(--live); }
+
+/* proposals */
+.prop { border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.prop + .prop { margin-top: 14px; }
+.prop-blocked { border-color: var(--crit); }
+.prop-head { padding: 13px 16px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid var(--rule-soft); flex-wrap: wrap; }
+.prop-t { font-family: var(--f-display); font-size: 16.5px; font-weight: 500; flex: 1; min-width: 220px; }
+.sim { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--rule-soft); }
+.sim-c { background: var(--surface); padding: 12px 16px; }
+.sim-k { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+.sim-v { font-family: var(--f-mono); font-size: 20px; font-weight: 500; margin-top: 3px; }
+.sim-v.ok { color: var(--ok); } .sim-v.crit { color: var(--crit); }
+
+/* gates */
+.gate { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); }
+.gate:last-child { border-bottom: 0; }
+.gate-i { font-size: 13px; line-height: 1.5; }
+.gate-ok { color: var(--ok); } .gate-no { color: var(--crit); }
+.gate-t { font-size: 13.5px; font-weight: 500; }
+.gate-d { font-size: 12.5px; color: var(--ink-soft); }
+
+/* buttons */
+.btn {
+  font-size: 13.5px; font-weight: 600; padding: 9px 17px; border-radius: var(--radius);
+  border: 1px solid var(--rule); background: var(--surface); cursor: pointer;
+}
+.btn:hover { border-color: var(--ink-soft); }
+.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn-primary:hover { filter: brightness(1.12); }
+.btn-danger { color: var(--crit); border-color: var(--crit); background: transparent; }
+.btn-danger:hover { background: var(--crit-wash); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 15px; }
+
+textarea {
+  width: 100%; font: inherit; font-size: 13.5px; padding: 11px 13px;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); color: var(--ink); resize: vertical; min-height: 82px;
+}
+textarea:focus { border-color: var(--live); outline: none; }
+label.fl { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.req { color: var(--crit); }
+
+/* trace */
+.trace { position: relative; padding-left: 22px; }
+.trace::before { content: ""; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 1px; background: var(--rule); }
+.tr { position: relative; padding: 0 0 18px; }
+.tr::before {
+  content: ""; position: absolute; left: -19px; top: 5px; width: 9px; height: 9px;
+  border-radius: 50%; background: var(--surface); border: 2px solid var(--rule);
+}
+.tr-agent::before { border-color: var(--live); }
+.tr-human::before { border-color: var(--accent); background: var(--accent); }
+.tr-engine::before { border-color: var(--ok); }
+.tr-top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.tr-t { font-size: 13.5px; font-weight: 600; }
+.tr-time { font-family: var(--f-mono); font-size: 11px; color: var(--ink-faint); }
+.tr-d { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; max-width: 72ch; }
+.tr-cost { font-family: var(--f-mono); font-size: 11px; color: var(--ink-faint); margin-top: 3px; }
+
+/* context bar */
+.ctx {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius);
+  padding: 11px 15px; margin-bottom: 20px;
+}
+.ctx-id { font-family: var(--f-mono); font-size: 11.5px; color: var(--ink-faint); }
+.ctx-t { font-size: 13.5px; font-weight: 600; }
+.linkbtn {
+  background: none; border: 0; padding: 0; cursor: pointer; color: var(--live);
+  font-size: 12.5px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px;
+}
+
+/* drawer */
+.scrim {
+  position: fixed; inset: 0; background: rgba(19,26,33,.45); z-index: 60;
+  opacity: 0; pointer-events: none; transition: opacity .2s;
+}
+.scrim.on { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 92vw); z-index: 70;
+  background: var(--surface); border-left: 1px solid var(--rule);
+  transform: translateX(100%); transition: transform .24s ease-out;
+  display: flex; flex-direction: column;
+}
+.drawer.on { transform: none; }
+.drawer-head { padding: 15px 18px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 12px; }
+.drawer-body { padding: 18px; overflow-y: auto; flex: 1; }
+
+.toast {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(14px);
+  background: var(--ink); color: var(--paper); padding: 11px 19px; border-radius: var(--radius);
+  font-size: 13.5px; font-weight: 500; z-index: 90; opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; box-shadow: var(--shadow);
+}
+.toast.on { opacity: 1; transform: translateX(-50%); }
+
+.footnote { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--ink-faint); max-width: 74ch; }
+
+@media (max-width: 900px) {
+  .rail { display: none; }
+  .main { padding: 20px 16px 60px; }
+}
+</style>
+
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">Steward Console</span>
+      <span class="brand-sub">Commercial Data Quality</span>
+    </div>
+    <span class="chip chip-synthetic">Synthetic data · mock</span>
+    <div class="topbar-spacer"></div>
+    <button class="iconbtn" id="theme" title="Switch theme" aria-label="Switch theme">◐</button>
+    <div class="who">
+      <div class="avatar">RK</div>
+      <div>
+        <div class="who-name">R. Kaur</div>
+        <div class="who-role">Data Steward · US Commercial</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="body">
+    <nav class="rail" id="rail" aria-label="Pipeline stages">
+      <div class="rail-head">Pipeline</div>
+      <!-- stages injected -->
+      <div class="rail-note">
+        <b>Every stage is tagged</b> with the feature that delivers it, so this mock doubles as a
+        check on the roadmap.
+        <div class="legend">
+          <span><i class="dot dot-built"></i> Built</span>
+          <span><i class="dot dot-planned"></i> Planned</span>
+        </div>
+      </div>
+    </nav>
+
+    <main class="main" id="main"></main>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true" aria-label="Evidence record">
+  <div class="drawer-head">
+    <span class="card-title">Evidence record</span>
+    <div class="spacer"></div>
+    <button class="iconbtn" id="drawer-x" aria-label="Close">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ================================================================== *
+   Content. Pharmaceutical commercial data, entirely fictional.
+ * ================================================================== */
+
+const STAGES = [
+  { id: "queue",   n: 1, t: "Issue queue",            f: "Feature 2", built: false },
+  { id: "finding", n: 2, t: "Findings",               f: "Feature 1", built: true  },
+  { id: "invest",  n: 3, t: "Root-cause investigation", f: "Feature 3", built: false },
+  { id: "impact",  n: 4, t: "Business impact",        f: "Feature 4", built: false },
+  { id: "propose", n: 5, t: "Proposed correction",    f: "Feature 5", built: false },
+  { id: "approve", n: 6, t: "Approval & publish",     f: "Feature 6", built: false },
+  { id: "trace",   n: 7, t: "Audit trace",            f: "Feature 7", built: false }
+];
+
+const EVIDENCE = {
+  "EV-4471": {
+    kind: "Query result",
+    q: "Distinct hcp_key in sales_transaction with no matching hcp master version as of 2026-09-30",
+    rows: 417,
+    detail: "417 distinct hcp_key values, of which 412 match an hcp master record under a different source_system_id (IQVIA_DDD rather than VEEVA).",
+    captured: "2026-09-14 03:22:07 UTC"
+  },
+  "EV-4472": {
+    kind: "Batch metadata",
+    q: "data_batch rows for source VEEVA, business_period 2026-09",
+    rows: 2,
+    detail: "Batch 8841 arrived 2026-09-01 04:12 UTC with 1,204,882 rows. Batch 8902 arrived 2026-09-12 04:09 UTC with 417 rows — an out-of-cycle delta load. Every orphan traces to batch 8902.",
+    captured: "2026-09-14 03:22:31 UTC"
+  },
+  "EV-4473": {
+    kind: "Master-data lookup",
+    q: "hcp master versions matching orphaned keys under alternate source_system_id",
+    rows: 412,
+    detail: "412 of 417 keys resolve against IQVIA_DDD master records. NPI ••••••4419 and 411 others. Suggests the delta load carried IQVIA keys into a VEEVA-tagged batch.",
+    captured: "2026-09-14 03:23:02 UTC"
+  },
+  "EV-4474": {
+    kind: "Historical comparison",
+    q: "Prior occurrences of SALES-ORPHAN-HCP resolved in the last 18 months",
+    rows: 3,
+    detail: "Three prior occurrences (2025-11, 2026-02, 2026-06), all following an out-of-cycle delta load from the same vendor. All three were resolved by re-mapping to the correct source system, none by creating master records.",
+    captured: "2026-09-14 03:23:44 UTC"
+  },
+  "EV-4480": {
+    kind: "Aggregate comparison",
+    q: "Units by territory, 2026-08 vs 2026-09, territories NE-4412 / NE-4418 / MW-2208 / MW-2231 / SW-1104",
+    rows: 5,
+    detail: "All five territories show 31–38% unit growth. Growth is confined to Velmora 40mg and begins on 2026-09-02.",
+    captured: "2026-09-14 06:11:19 UTC"
+  },
+  "EV-4481": {
+    kind: "Alignment record",
+    q: "territory_alignment changes effective 2026-09-01",
+    rows: 148,
+    detail: "148 HCPs realigned into the five territories effective 2026-09-01, part of the announced Q4 field expansion. The volume rise matches the realignment exactly.",
+    captured: "2026-09-14 06:12:04 UTC"
+  },
+  "EV-4482": {
+    kind: "Rule configuration",
+    q: "rule_version history for VOL-DEVIATION",
+    rows: 1,
+    detail: "Threshold of 20% period-over-period set 2025-03-11 and never revised. It does not account for planned territory realignment, so any field expansion trips it.",
+    captured: "2026-09-14 06:12:40 UTC"
+  },
+  "EV-4490": {
+    kind: "Column profile",
+    q: "hco_source_key null rate on hcp master, by source and period",
+    rows: 12,
+    detail: "Null rate on IQVIA_DDD has been a steady 6.1–6.4% for 14 consecutive months. No change in September. The field is not populated by this vendor for non-affiliated practitioners.",
+    captured: "2026-09-13 22:40:15 UTC"
+  }
+};
+
+const ISSUES = [
+  {
+    id: "ISS-2026-0914-003",
+    rank: 1, score: 92,
+    title: "Sales transactions reference HCPs absent from master data",
+    source: "VEEVA", period: "Sep 2026",
+    rule: "SALES-ORPHAN-HCP", ruleVer: 3, dimension: "referential integrity",
+    severity: "HIGH", findings: 417, owner: "Commercial Operations",
+    status: "Awaiting your approval", statusKind: "warn",
+    outcome: "defect",
+    predicate: `SELECT t.txn_id::text  AS subject_key,
+       t.hcp_key      AS offending_value,
+       NULL::text     AS observed_value,
+       NULL::text     AS expected_value
+FROM   sales_transaction t
+WHERE  t.batch_id = :batch_id
+  AND  NOT EXISTS (
+         SELECT 1 FROM hcp h
+         WHERE  h.source_system_id = t.source_system_id
+           AND  h.source_key       = t.hcp_key
+           AND  h.valid_from      <= :as_of_date
+           AND  h.batch_id        <= :reference_watermark
+       )`,
+    run: { runId: "RUN-118344", corr: "8f2c1a9e-4d33-4b71-9a02-6ce1b7f45d10",
+           asOf: "2026-09-30", watermark: "8902", started: "2026-09-14 03:18:52 UTC",
+           status: "COMPLETED", settings: "UTC · ISO, YMD · 15min" },
+    samples: [
+      ["TXN-90412887", "HCP-4419772", "Velmora 40mg", "NE-4412", "2026-09-04", "120.0000"],
+      ["TXN-90412903", "HCP-4419772", "Velmora 40mg", "NE-4412", "2026-09-05", "80.0000"],
+      ["TXN-90413118", "HCP-5528104", "Trenoxil 10mg", "MW-2208", "2026-09-05", "45.0000"],
+      ["TXN-90413402", "HCP-5528104", "Trenoxil 10mg", "MW-2208", "2026-09-07", "60.0000"],
+      ["TXN-90414771", "HCP-6610339", "Alvexa XR", "SW-1104", "2026-09-08", "200.0000"],
+      ["TXN-90415002", "HCP-6610339", "Velmora 40mg", "SW-1104", "2026-09-09", "150.0000"]
+    ],
+    hypotheses: [
+      { h: "An out-of-cycle delta load carried IQVIA source keys into a VEEVA-tagged batch",
+        c: 0.86,
+        why: "Batch 8902 is a 417-row delta that arrived eleven days after the monthly load. Every orphaned key belongs to it, and 412 of the 417 resolve cleanly against master records under IQVIA_DDD. The transactions are real; the source system stamped on them is wrong.",
+        ev: ["EV-4471", "EV-4472", "EV-4473", "EV-4474"],
+        test: "Confirmed if the remaining 5 keys also resolve under IQVIA_DDD once the vendor's 2026-09 master delta lands. Refuted if any of the 412 matches is coincidental on key format alone." },
+      { h: "Genuinely new practitioners not yet present in any master feed",
+        c: 0.11,
+        why: "Would explain the five keys that resolve nowhere. Does not explain the 412 that resolve under another source system, and does not explain why all 417 arrived in one out-of-cycle batch.",
+        ev: ["EV-4471", "EV-4473"],
+        test: "Confirmed if the five appear in the next master delta as new records with recent licence dates." },
+      { h: "Master-data deletion between load and evaluation",
+        c: 0.03,
+        why: "No master record carries is_deleted for these keys in any batch up to the run watermark, and master data is append-only, so a deletion would still be visible as a version.",
+        ev: ["EV-4473"],
+        test: "Refuted by the absence of any is_deleted version. Retained only for completeness." }
+    ],
+    agent: { calls: 14, cap: 25, secs: 41, cost: "$0.18", model: "claude-sonnet-5" },
+    impact: {
+      headline: "Q3 units for 14 territories are understated by roughly 2.3%",
+      units: "38,400", pct: "2.3%", terr: 14, periods: "2026-09",
+      rows: [
+        ["NE-4412", "Northeast 1", "9,240", "4.1%", "Field Incentive Comp · Q3 Territory Scorecard"],
+        ["MW-2208", "Midwest 3", "7,880", "3.4%", "Field Incentive Comp · Q3 Territory Scorecard"],
+        ["SW-1104", "Southwest 2", "6,150", "2.9%", "Q3 Territory Scorecard"],
+        ["NE-4418", "Northeast 4", "4,020", "1.8%", "Q3 Territory Scorecard"],
+        ["MW-2231", "Midwest 7", "3,110", "1.4%", "Q3 Territory Scorecard"]
+      ],
+      gap: "Lineage is available for incentive compensation and territory scorecards only. Whether these units reach the national brand forecast is not recorded anywhere in the lineage model, so this assessment does not claim it."
+    },
+    proposals: [
+      { t: "Re-map 417 transactions to source_system_id = IQVIA_DDD",
+        rec: true,
+        d: "Appends a corrected version of each transaction attributing it to the source system whose master data it matches. The original rows are untouched — the batch stays immutable and the correction is a new version.",
+        sim: { rows: 417, flip: 412, regress: 0, ri: 0 },
+        gates: [
+          [true, "No rule regresses", "All 43 active rules re-run against the sandbox. None moves from pass to fail."],
+          [true, "Blast radius within threshold", "417 rows, 0.03% of the period. Threshold is 5%."],
+          [true, "Scope respected", "Every affected row belongs to this issue."],
+          [false, "5 transactions remain unresolved", "Five keys match no master record under any source system. They stay as open findings rather than being silently absorbed."]
+        ] },
+      { t: "Create placeholder HCP master records for all 417 keys",
+        rec: false, blocked: true,
+        d: "Would create a master record for each orphaned key so the referential-integrity rule passes.",
+        sim: { rows: 417, flip: 417, regress: 417, ri: 0 },
+        gates: [
+          [false, "Regresses HCP-NPI-FORMAT on 417 rows", "Placeholder records carry no NPI, so every one of them fails a rule that currently passes. Rejected by the safety gate before a steward sees it as an option."],
+          [false, "Masks the real defect", "The transactions would validate while still being attributed to the wrong source system."]
+        ] }
+    ],
+    trace: [
+      ["engine", "Rule run completed", "2026-09-14 03:18:52", "SALES-ORPHAN-HCP v3 evaluated over batch 8902. 417 findings persisted. Run RUN-118344.", ""],
+      ["engine", "Issue clustered", "2026-09-14 03:19:10", "417 findings grouped into one issue on rule + source + period. Priority 92 from severity, record count, and owning function.", ""],
+      ["agent", "Investigation started", "2026-09-14 03:22:01", "Bounded ReAct loop, cap 25 tool calls.", "claude-sonnet-5"],
+      ["agent", "profile_column · sales_transaction.hcp_key", "2026-09-14 03:22:07", "Returned EV-4471. 417 distinct orphaned keys.", "1,840 in · 610 out · 2.1s"],
+      ["agent", "inspect_batch_metadata · VEEVA 2026-09", "2026-09-14 03:22:31", "Returned EV-4472. Out-of-cycle delta identified.", "2,210 in · 480 out · 1.8s"],
+      ["agent", "lookup_master_alternate_keys", "2026-09-14 03:23:02", "Returned EV-4473. 412 of 417 resolve under IQVIA_DDD. HCP identifiers masked before entering the prompt.", "3,090 in · 720 out · 2.6s"],
+      ["agent", "retrieve_historical_resolutions", "2026-09-14 03:23:44", "Returned EV-4474. Three prior occurrences, same resolution each time.", "1,650 in · 540 out · 1.9s"],
+      ["agent", "Hypotheses produced", "2026-09-14 03:24:33", "Three ranked hypotheses, every claim cited. 14 of 25 calls used.", "$0.18 total · 41s"],
+      ["agent", "Impact assessed", "2026-09-14 03:31:12", "14 territories, 38,400 units, 2.3% of reported. Lineage gap stated explicitly.", "$0.09 · 22s"],
+      ["agent", "Proposals simulated", "2026-09-14 03:36:40", "Two candidates executed against sandbox schema. One passed the gates, one rejected for regressing HCP-NPI-FORMAT.", "$0.14 · 51s"],
+      ["human", "Awaiting steward decision", "—", "Workflow suspended at a durable interrupt. Resumable for as long as it takes.", ""]
+    ]
+  },
+
+  {
+    id: "ISS-2026-0914-007",
+    rank: 2, score: 74,
+    title: "Period-over-period volume deviation across 5 territories",
+    source: "VEEVA", period: "Sep 2026",
+    rule: "VOL-DEVIATION", ruleVer: 1, dimension: "consistency",
+    severity: "MEDIUM", findings: 5, owner: "Commercial Analytics",
+    status: "Rule change proposed", statusKind: "neutral",
+    outcome: "rule-wrong",
+    verdictTitle: "The rule is wrong, not the data",
+    verdictBody: "All five territories grew 31–38% in September. The growth is real: 148 HCPs were realigned into them on 2026-09-01 as part of the announced Q4 field expansion. VOL-DEVIATION's 20% threshold was set in March 2025 and has never accounted for planned realignment, so any field expansion trips it. Correcting the data here would corrupt it.",
+    predicate: `SELECT t.territory_code            AS subject_key,
+       NULL::text                  AS offending_value,
+       sum(t.quantity)::text       AS observed_value,
+       (:threshold_pct)::text      AS expected_value
+FROM   sales_transaction t
+WHERE  t.batch_id = :batch_id
+GROUP  BY t.territory_code
+HAVING abs(...) > :threshold_pct`,
+    run: { runId: "RUN-118344", corr: "8f2c1a9e-4d33-4b71-9a02-6ce1b7f45d10",
+           asOf: "2026-09-30", watermark: "8902", started: "2026-09-14 03:18:52 UTC",
+           status: "COMPLETED", settings: "UTC · ISO, YMD · 15min" },
+    samples: [
+      ["NE-4412", "—", "All products", "NE-4412", "2026-09", "+37.4%"],
+      ["NE-4418", "—", "All products", "NE-4418", "2026-09", "+31.2%"],
+      ["MW-2208", "—", "All products", "MW-2208", "2026-09", "+38.1%"],
+      ["MW-2231", "—", "All products", "MW-2231", "2026-09", "+33.8%"],
+      ["SW-1104", "—", "All products", "SW-1104", "2026-09", "+34.6%"]
+    ],
+    hypotheses: [
+      { h: "Planned territory realignment, not a data defect",
+        c: 0.91,
+        why: "148 HCPs were realigned into these five territories effective 2026-09-01. The unit growth matches the realignment in both timing and magnitude. The data is correct; the threshold does not model planned change.",
+        ev: ["EV-4480", "EV-4481", "EV-4482"],
+        test: "Confirmed if October holds at the new level rather than continuing to climb. Refuted if growth continues beyond what the realigned panel can produce." },
+      { h: "Duplicate transaction loading",
+        c: 0.06,
+        why: "Would produce a similar step change, but no duplicate source_txn_key exists in the period and the uniqueness rule raised nothing.",
+        ev: ["EV-4480"],
+        test: "Refuted by the clean uniqueness run." }
+    ],
+    agent: { calls: 9, cap: 25, secs: 27, cost: "$0.11", model: "claude-sonnet-5" },
+    impact: {
+      headline: "No commercial impact. The reported numbers are correct.",
+      units: "0", pct: "0%", terr: 0, periods: "—",
+      rows: [],
+      gap: "No correction is warranted, so no blast radius is assessed. Acting on this alert would have introduced an error into five territories that are currently accurate."
+    },
+    proposals: [
+      { t: "Raise VOL-DEVIATION threshold and exclude realignment periods",
+        rec: true,
+        d: "This is a rule change, not a data change. A new rule version raises the threshold to 45% and excludes territories with an alignment change in the period. Version 1 stays readable, so the five findings already recorded remain interpretable as what version 1 meant.",
+        sim: { rows: 0, flip: 5, regress: 0, ri: 0 },
+        gates: [
+          [true, "No curated data is touched", "A rule version is appended. No commercial row changes."],
+          [true, "Historical findings preserved", "Version 1 findings stay attributed to version 1."],
+          [true, "Re-run under v2 raises nothing", "The five territories pass under the revised threshold."]
+        ] }
+    ],
+    trace: [
+      ["engine", "Rule run completed", "2026-09-14 03:18:52", "VOL-DEVIATION v1 evaluated. 5 findings persisted.", ""],
+      ["agent", "Investigation started", "2026-09-14 06:10:55", "Bounded ReAct loop, cap 25 tool calls.", "claude-sonnet-5"],
+      ["agent", "compare_period_aggregates", "2026-09-14 06:11:19", "Returned EV-4480. Growth confined to one product, starting 2026-09-02.", "2,410 in · 690 out · 2.4s"],
+      ["agent", "check_alignment_effective_dating", "2026-09-14 06:12:04", "Returned EV-4481. 148 HCPs realigned effective 2026-09-01.", "1,980 in · 520 out · 2.0s"],
+      ["agent", "inspect_rule_configuration", "2026-09-14 06:12:40", "Returned EV-4482. Threshold unchanged since 2025-03-11.", "1,120 in · 380 out · 1.4s"],
+      ["agent", "Conclusion: the rule is wrong", "2026-09-14 06:13:22", "Recommends a rule version change and explicitly recommends against correcting the data.", "$0.11 total · 27s"],
+      ["human", "Awaiting steward decision", "—", "Rule changes go through the same approval gate as data changes.", ""]
+    ]
+  },
+
+  {
+    id: "ISS-2026-0913-011",
+    rank: 3, score: 38,
+    title: "HCO affiliation blank on 1,204 HCP master records",
+    source: "IQVIA_DDD", period: "Sep 2026",
+    rule: "HCP-HCO-COMPLETE", ruleVer: 2, dimension: "completeness",
+    severity: "LOW", findings: 1204, owner: "Master Data Management",
+    status: "Closed — no action",  statusKind: "ok",
+    outcome: "not-actionable",
+    verdictTitle: "The data is correct. This alert is not actionable.",
+    verdictBody: "The null rate on hco_source_key has held at 6.1–6.4% for fourteen consecutive months and did not move in September. This vendor does not populate affiliation for practitioners with no institutional attachment — the blank is the correct value, not a missing one. Nothing changed; the rule simply counts the same population every month.",
+    predicate: `SELECT h.hcp_id::text     AS subject_key,
+       h.hco_source_key  AS offending_value,
+       NULL::text        AS observed_value,
+       NULL::text        AS expected_value
+FROM   hcp h
+WHERE  h.batch_id = :batch_id
+  AND  h.valid_from <= :as_of_date
+  AND  h.batch_id   <= :reference_watermark
+  AND  h.hco_source_key IS NULL`,
+    run: { runId: "RUN-118301", corr: "5b1e9d02-77aa-4c18-8e3f-2a90cc61b884",
+           asOf: "2026-09-30", watermark: "8902", started: "2026-09-13 22:36:04 UTC",
+           status: "COMPLETED", settings: "UTC · ISO, YMD · 15min" },
+    samples: [
+      ["HCP-7710244", "—", "—", "—", "2026-09-01", "NULL"],
+      ["HCP-7710298", "—", "—", "—", "2026-09-01", "NULL"],
+      ["HCP-7710455", "—", "—", "—", "2026-09-01", "NULL"]
+    ],
+    hypotheses: [
+      { h: "Vendor does not populate affiliation for unaffiliated practitioners",
+        c: 0.94,
+        why: "The null rate is flat across fourteen months with no September movement. Every affected record is a solo practitioner by licence type. A blank here means 'no affiliation', which is true.",
+        ev: ["EV-4490"],
+        test: "Confirmed if the rate stays flat next month. Refuted by a sudden change in rate, which would indicate a feed problem rather than a population characteristic." }
+    ],
+    agent: { calls: 6, cap: 25, secs: 18, cost: "$0.07", model: "claude-sonnet-5" },
+    impact: {
+      headline: "No commercial impact.",
+      units: "0", pct: "0%", terr: 0, periods: "—",
+      rows: [],
+      gap: "Affiliation is not consumed by any incentive or scorecard report in the lineage model."
+    },
+    proposals: [],
+    trace: [
+      ["engine", "Rule run completed", "2026-09-13 22:36:04", "HCP-HCO-COMPLETE v2 evaluated. 1,204 findings persisted.", ""],
+      ["agent", "Investigation started", "2026-09-13 22:39:50", "Bounded ReAct loop, cap 25 tool calls.", "claude-sonnet-5"],
+      ["agent", "profile_column · hcp.hco_source_key", "2026-09-13 22:40:15", "Returned EV-4490. Null rate flat for 14 months.", "1,730 in · 450 out · 1.7s"],
+      ["agent", "Conclusion: not actionable", "2026-09-13 22:40:58", "Recommends no correction and flags the rule for review at the next catalogue cycle.", "$0.07 total · 18s"],
+      ["human", "Closed by steward", "2026-09-14 08:12", "R. Kaur closed with justification: 'Known vendor behaviour, confirmed with MDM. Rule to be scoped to affiliated practitioners only.'", ""]
+    ]
+  }
+];
+
+/* ================================================================== *
+   State
+ * ================================================================== */
+let stage = "queue";
+let issueIx = 0;
+let decided = null;   // null | "approved" | "rejected"
+
+const $ = (s) => document.querySelector(s);
+const issue = () => ISSUES[issueIx];
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+/* ================================================================== *
+   Rail
+ * ================================================================== */
+function renderRail() {
+  const cur = STAGES.findIndex(s => s.id === stage);
+  $("#rail").querySelectorAll(".stage").forEach(n => n.remove());
+  const anchor = $("#rail .rail-note");
+  STAGES.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.className = "stage" + (i < cur ? " stage-done" : "");
+    b.setAttribute("aria-current", s.id === stage ? "true" : "false");
+    b.innerHTML = `
+      <span class="stage-n">${i < cur ? "✓" : s.n}</span>
+      <span>
+        <span class="stage-t">${s.t}</span>
+        <span class="stage-meta">
+          <i class="dot ${s.built ? "dot-built" : "dot-planned"}"></i>
+          ${s.f} · ${s.built ? "built" : "planned"}
+        </span>
+      </span>`;
+    b.onclick = () => go(s.id);
+    $("#rail").insertBefore(b, anchor);
+  });
+}
+
+function go(id) {
+  stage = id;
+  renderRail();
+  render();
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+/* ================================================================== *
+   Fragments
+ * ================================================================== */
+function sevChip(sev) {
+  const cls = sev === "HIGH" ? "sev-high" : sev === "MEDIUM" ? "sev-med" : "sev-low";
+  return `<span class="sev ${cls}">${sev}</span>`;
+}
+
+function ctxBar() {
+  const it = issue();
+  return `<div class="ctx">
+    <span class="ctx-id mono">${it.id}</span>
+    <span class="ctx-t">${esc(it.title)}</span>
+    ${sevChip(it.severity)}
+    <span class="chip chip-neutral">${it.source} · ${it.period}</span>
+    <div class="spacer"></div>
+    <button class="linkbtn" onclick="go('queue')">← Back to queue</button>
+  </div>`;
+}
+
+function head(eyebrow, title, lede) {
+  return `<div class="screen-head">
+    <div class="eyebrow">${eyebrow}</div>
+    <h1 class="h-screen">${title}</h1>
+    ${lede ? `<p class="lede">${lede}</p>` : ""}
+  </div>`;
+}
+
+/* ================================================================== *
+   Screens
+ * ================================================================== */
+function scrQueue() {
+  const rows = ISSUES.map((it, i) => `
+    <tr class="rowlink" onclick="openIssue(${i})">
+      <td class="score">${it.score}</td>
+      <td>
+        <div style="font-weight:600">${esc(it.title)}</div>
+        <div class="mono" style="font-size:11.5px;color:var(--ink-faint);margin-top:2px">${it.id}</div>
+      </td>
+      <td class="mono" style="font-size:12px">${it.source}<br><span style="color:var(--ink-faint)">${it.period}</span></td>
+      <td class="mono" style="font-size:12px">${it.rule}<br><span style="color:var(--ink-faint)">v${it.ruleVer} · ${it.dimension}</span></td>
+      <td class="r num">${it.findings.toLocaleString()}</td>
+      <td>${sevChip(it.severity)}</td>
+      <td><span class="chip chip-${it.statusKind}">${it.status}</span></td>
+    </tr>`).join("");
+
+  return head("Stage 1 · Issue queue",
+    "Three issues need you today",
+    "Findings are not the unit of work — issues are. 1,626 individual findings, clustered into three issues and ranked. The rank is inspectable, not a black box.") +
+  `<div class="metrics">
+     <div class="metric"><div class="metric-k">Open issues</div><div class="metric-v">3</div><div class="metric-n">across 2 source systems</div></div>
+     <div class="metric"><div class="metric-k">Findings this period</div><div class="metric-v">1,626</div><div class="metric-n">from 43 active rules</div></div>
+     <div class="metric"><div class="metric-k">Awaiting your approval</div><div class="metric-v warn">1</div><div class="metric-n">simulated, gates passed</div></div>
+     <div class="metric"><div class="metric-k">Feeds late or missing</div><div class="metric-v crit">1</div><div class="metric-n">IQVIA_DDD · 2026-09</div></div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">Prioritized queue</span>
+       <div class="spacer"></div>
+       <span style="font-size:12px;color:var(--ink-faint)">Click any row to walk the full flow</span>
+     </div>
+     <div class="tw"><table>
+       <thead><tr><th>Rank</th><th>Issue</th><th>Source</th><th>Rule</th><th class="r">Findings</th><th>Severity</th><th>Status</th></tr></thead>
+       <tbody>${rows}</tbody>
+     </table></div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">Why these three, in this order</span></div>
+     <div class="card-body">
+       <div class="note"><b>Ranking is deterministic and inspectable.</b> Score combines rule severity, record count,
+       owning business function, and recency. No model decides what matters — a model only explains what happened
+       once the ranking has put an issue in front of you.</div>
+     </div>
+   </div>
+   <p class="footnote">Two of these three turn out <em>not</em> to be data defects. That is deliberate: a system that can only
+   ever confirm a problem erodes trust faster than one that is occasionally wrong. Open issues 2 and 3 to see those paths.</p>`;
+}
+
+function scrFinding() {
+  const it = issue();
+  const rows = it.samples.map(r => `<tr>${r.map((c, i) =>
+    `<td class="${i === 5 ? "mono" : i === 0 ? "mono" : ""}"${i === 5 ? ' style="color:var(--crit);font-weight:600"' : ""}>${esc(c)}</td>`).join("")}</tr>`).join("");
+
+  return ctxBar() + head("Stage 2 · Findings",
+    "What failed, exactly",
+    "Detection is a SQL rule executed in the database. No model is involved at this stage and none can overrule it — an agent that contradicts this result is a defect in the agent.") +
+  `<div class="metrics">
+     <div class="metric"><div class="metric-k">Findings</div><div class="metric-v">${it.findings.toLocaleString()}</div><div class="metric-n">one per failing record</div></div>
+     <div class="metric"><div class="metric-k">Rule</div><div class="metric-v" style="font-size:17px">${it.rule}</div><div class="metric-n">version ${it.ruleVer} · ${it.dimension}</div></div>
+     <div class="metric"><div class="metric-k">Owning function</div><div class="metric-v" style="font-size:17px">${it.owner}</div><div class="metric-n">accountable for the fix</div></div>
+     <div class="metric"><div class="metric-k">Run status</div><div class="metric-v" style="font-size:17px;color:var(--ok)">${it.run.status}</div><div class="metric-n">${it.run.runId}</div></div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">Reproducibility record</span>
+       <div class="spacer"></div><span class="chip chip-ok">Re-runnable</span></div>
+     <div class="card-body">
+       <div class="kv">
+         <div><div class="kv-k">Correlation ID</div><div class="kv-v">${it.run.corr}</div></div>
+         <div><div class="kv-k">As-of date</div><div class="kv-v">${it.run.asOf}</div></div>
+         <div><div class="kv-k">Reference watermark</div><div class="kv-v">batch ${it.run.watermark}</div></div>
+         <div><div class="kv-k">Session settings</div><div class="kv-v">${it.run.settings}</div></div>
+       </div>
+       <div class="note" style="margin-top:15px"><b>These four values are why a re-run months from now returns the same rows.</b>
+       The as-of date pins which master-data version applied; the watermark pins which batches had arrived; the session
+       settings pin the execution environment. Without all three, a historical re-run silently drifts.</div>
+     </div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">The rule that fired</span>
+       <div class="spacer"></div><span class="chip chip-neutral">Immutable · version ${it.ruleVer}</span></div>
+     <div class="card-body"><pre class="sql">${esc(it.predicate)}</pre></div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">Failing records</span>
+       <div class="spacer"></div><span style="font-size:12px;color:var(--ink-faint)">${it.samples.length} of ${it.findings.toLocaleString()}</span></div>
+     <div class="tw"><table>
+       <thead><tr><th>Subject</th><th>HCP key</th><th>Product</th><th>Territory</th><th>Date</th><th>Offending value</th></tr></thead>
+       <tbody>${rows}</tbody>
+     </table></div>
+   </div>
+   <div class="btn-row"><button class="btn btn-primary" onclick="go('invest')">Investigate root cause →</button></div>`;
+}
+
+function scrInvest() {
+  const it = issue();
+  const hyp = it.hypotheses.map((h, i) => `
+    <div class="hyp">
+      <div class="hyp-top">
+        <span class="hyp-rank">H${i + 1}</span>
+        <span class="hyp-h">${esc(h.h)}</span>
+        <span class="conf">
+          <span class="conf-bar"><span class="conf-fill" style="width:${h.c * 100}%"></span></span>
+          <span class="conf-n">${(h.c * 100).toFixed(0)}%</span>
+        </span>
+      </div>
+      <p class="hyp-body">${esc(h.why)}</p>
+      <div class="hyp-sub">Evidence — click to inspect</div>
+      <div class="ev-row" style="margin-bottom:11px">
+        ${h.ev.map(e => `<button class="ev" onclick="showEv('${e}')">${e}</button>`).join("")}
+      </div>
+      <div class="hyp-sub">What would confirm or refute this</div>
+      <p style="font-size:12.5px;color:var(--ink-soft);max-width:74ch">${esc(h.test)}</p>
+    </div>`).join("");
+
+  const verdict = it.verdictTitle ? `
+    <div class="note ${it.outcome === "rule-wrong" ? "note-warn" : "note-ok"}" style="margin-bottom:18px">
+      <b>${esc(it.verdictTitle)}</b><br>${esc(it.verdictBody)}
+    </div>` : "";
+
+  return ctxBar() + head("Stage 3 · Root-cause investigation",
+    "Why it happened",
+    "An agent chose and sequenced its own read-only investigation. Every claim below cites a persisted evidence record by ID — an unciteable claim is rejected before it reaches you.") +
+    verdict +
+  `<div class="metrics">
+     <div class="metric"><div class="metric-k">Tool calls</div><div class="metric-v">${it.agent.calls}<span style="font-size:14px;color:var(--ink-faint)"> / ${it.agent.cap}</span></div><div class="metric-n">hard cap, terminates deterministically</div></div>
+     <div class="metric"><div class="metric-k">Wall clock</div><div class="metric-v">${it.agent.secs}s</div><div class="metric-n">start to hypotheses</div></div>
+     <div class="metric"><div class="metric-k">Cost</div><div class="metric-v">${it.agent.cost}</div><div class="metric-n">${it.agent.model}</div></div>
+     <div class="metric"><div class="metric-k">Hypotheses</div><div class="metric-v">${it.hypotheses.length}</div><div class="metric-n">ranked by confidence</div></div>
+   </div>
+   ${hyp}
+   <div class="card">
+     <div class="card-head"><span class="card-title">Before any of this reached a prompt</span></div>
+     <div class="card-body">
+       <div class="note"><b>HCP identifiers were masked at the point the prompt was assembled</b>, not at the point it was
+       logged — <span class="mono">NPI ••••••4419</span>. A payload masked only in logs was still transmitted in the clear.
+       The audit trail stores what the model actually saw.</div>
+     </div>
+   </div>
+   <div class="btn-row"><button class="btn btn-primary" onclick="go('impact')">See business impact →</button></div>`;
+}
+
+function scrImpact() {
+  const it = issue();
+  const im = it.impact;
+  const rows = im.rows.map(r => `<tr>
+      <td class="mono">${r[0]}</td><td>${r[1]}</td>
+      <td class="r mono">${r[2]}</td><td class="r mono">${r[3]}</td><td style="font-size:12.5px;color:var(--ink-soft)">${r[4]}</td>
+    </tr>`).join("");
+
+  return ctxBar() + head("Stage 4 · Business impact",
+    "What it costs the business",
+    "Translated out of row counts and into the numbers people actually act on — territories, periods, and the reports that consume them.") +
+  `<div class="note ${im.terr ? "note-warn" : "note-ok"}" style="margin-bottom:18px;font-size:15px">
+     <b>${esc(im.headline)}</b>
+   </div>
+   ${im.terr ? `<div class="metrics">
+     <div class="metric"><div class="metric-k">Units affected</div><div class="metric-v">${im.units}</div><div class="metric-n">understated</div></div>
+     <div class="metric"><div class="metric-k">Share of reported</div><div class="metric-v warn">${im.pct}</div><div class="metric-n">of the period total</div></div>
+     <div class="metric"><div class="metric-k">Territories</div><div class="metric-v">${im.terr}</div><div class="metric-n">5 material, 9 marginal</div></div>
+     <div class="metric"><div class="metric-k">Periods</div><div class="metric-v" style="font-size:19px">${im.periods}</div><div class="metric-n">no prior period affected</div></div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">Territories, most affected first</span></div>
+     <div class="tw"><table>
+       <thead><tr><th>Code</th><th>Territory</th><th class="r">Units</th><th class="r">% of total</th><th>Downstream</th></tr></thead>
+       <tbody>${rows}</tbody>
+     </table></div>
+   </div>` : ""}
+   <div class="card">
+     <div class="card-head"><span class="card-title">What this assessment does not claim</span></div>
+     <div class="card-body"><div class="note">${esc(im.gap)}</div></div>
+   </div>
+   <div class="btn-row"><button class="btn btn-primary" onclick="go('propose')">Review proposed correction →</button></div>`;
+}
+
+function scrPropose() {
+  const it = issue();
+  if (!it.proposals.length) {
+    return ctxBar() + head("Stage 5 · Proposed correction",
+      "No correction proposed",
+      "") +
+    `<div class="note note-ok" style="font-size:15px"><b>${esc(it.verdictTitle)}</b><br>${esc(it.verdictBody)}</div>
+     <div class="card"><div class="card-head"><span class="card-title">Why nothing is proposed</span></div>
+     <div class="card-body"><div class="note">Proposing a correction here would introduce an error into data that is currently
+     right. The issue was closed with a justification, and the rule flagged for scoping review at the next catalogue cycle.</div></div></div>
+     <div class="btn-row"><button class="btn btn-primary" onclick="go('trace')">See the audit trace →</button></div>`;
+  }
+
+  const props = it.proposals.map((p, i) => `
+    <div class="prop ${p.blocked ? "prop-blocked" : ""}">
+      <div class="prop-head">
+        <span class="chip ${p.blocked ? "chip-crit" : "chip-ok"}">${p.blocked ? "Blocked by safety gate" : "Recommended"}</span>
+        <span class="prop-t">${esc(p.t)}</span>
+      </div>
+      <div class="card-body" style="padding-bottom:0">
+        <p style="color:var(--ink-soft);font-size:13.5px;max-width:74ch">${esc(p.d)}</p>
+      </div>
+      <div class="card-body" style="padding-top:14px;padding-bottom:14px">
+        <div class="hyp-sub">Sandbox simulation result</div>
+      </div>
+      <div class="sim">
+        <div class="sim-c"><div class="sim-k">Rows affected</div><div class="sim-v">${p.sim.rows}</div></div>
+        <div class="sim-c"><div class="sim-k">Rules fail → pass</div><div class="sim-v ok">${p.sim.flip}</div></div>
+        <div class="sim-c"><div class="sim-k">Rules pass → fail</div><div class="sim-v ${p.sim.regress ? "crit" : "ok"}">${p.sim.regress}</div></div>
+        <div class="sim-c"><div class="sim-k">Referential breaks</div><div class="sim-v ok">${p.sim.ri}</div></div>
+      </div>
+      <div class="card-body">
+        <div class="hyp-sub">Safety gates</div>
+        ${p.gates.map(g => `<div class="gate">
+            <span class="gate-i ${g[0] ? "gate-ok" : "gate-no"}">${g[0] ? "✓" : "✕"}</span>
+            <span><span class="gate-t">${esc(g[1])}</span><br><span class="gate-d">${esc(g[2])}</span></span>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+
+  return ctxBar() + head("Stage 5 · Proposed correction",
+    "Simulated before you see it",
+    "Every candidate ran against an isolated sandbox first. A proposal with no attached simulation result cannot be surfaced for approval at all.") +
+    props +
+  `<div class="card">
+     <div class="card-head"><span class="card-title">The rejected option is the point</span></div>
+     <div class="card-body"><div class="note"><b>The second proposal would have fixed the reported failure and broken 417 rows elsewhere.</b>
+     It looks reasonable written down, and a steward reading it without a regression count could easily approve it. The gate
+     caught it because every candidate is executed, not reasoned about.</div></div>
+   </div>
+   <div class="btn-row"><button class="btn btn-primary" onclick="go('approve')">Go to approval →</button></div>`;
+}
+
+function scrApprove() {
+  const it = issue();
+  if (!it.proposals.length) {
+    return ctxBar() + head("Stage 6 · Approval", "Nothing to approve", "") +
+      `<div class="note note-ok">This issue was closed with a justification and no data change. The closure itself is
+       recorded in the audit trail.</div>
+       <div class="btn-row"><button class="btn btn-primary" onclick="go('trace')">See the audit trace →</button></div>`;
+  }
+
+  if (decided) {
+    const ok = decided === "approved";
+    return ctxBar() + head("Stage 6 · Approval & publish",
+      ok ? "Published" : "Rejected", "") +
+    `<div class="note ${ok ? "note-ok" : "note-crit"}" style="font-size:15px">
+       <b>${ok ? "Correction published to curated data." : "Proposal rejected. No data changed."}</b><br>
+       ${ok ? "Written under the governed publish role, invoked only after your approval. An immutable audit record links the published change to the evidence, the simulation, and to you."
+            : "The proposal is closed. The findings remain open and the issue returns to the queue."}
+     </div>
+     <div class="card">
+       <div class="card-head"><span class="card-title">Audit record</span><div class="spacer"></div>
+       <span class="chip chip-ok">Append-only</span></div>
+       <div class="card-body"><div class="kv">
+         <div><div class="kv-k">Decision</div><div class="kv-v">${ok ? "APPROVED" : "REJECTED"}</div></div>
+         <div><div class="kv-k">Steward</div><div class="kv-v">r.kaur@example.com</div></div>
+         <div><div class="kv-k">Correlation ID</div><div class="kv-v">${it.run.corr}</div></div>
+         <div><div class="kv-k">Publish role</div><div class="kv-v">${ok ? "dq_publish" : "— not invoked"}</div></div>
+       </div></div>
+     </div>
+     <div class="btn-row">
+       <button class="btn btn-primary" onclick="go('trace')">See the audit trace →</button>
+       <button class="btn" onclick="decided=null;render()">Reset this demo step</button>
+     </div>`;
+  }
+
+  return ctxBar() + head("Stage 6 · Approval & publish",
+    "Your decision, re-validated server-side",
+    "This is the first point in the whole pipeline that can change curated data. Nothing below is enforced by this page — every check runs again on the server when you click.") +
+  `<div class="card">
+     <div class="card-head"><span class="card-title">Checks re-run at the moment you decide</span></div>
+     <div class="card-body">
+       <div class="gate"><span class="gate-i gate-ok">✓</span><span><span class="gate-t">Steward authority</span><br>
+         <span class="gate-d">R. Kaur holds approval rights for US Commercial. Verified against the server, not the session.</span></span></div>
+       <div class="gate"><span class="gate-i gate-ok">✓</span><span><span class="gate-t">Proposal freshness</span><br>
+         <span class="gate-d">No batch has landed for VEEVA 2026-09 since the simulation ran at 03:36:40. A stale proposal cannot be published.</span></span></div>
+       <div class="gate"><span class="gate-i gate-ok">✓</span><span><span class="gate-t">Constitution compliance</span><br>
+         <span class="gate-d">Simulation attached, zero regressions, blast radius within threshold, scope respected.</span></span></div>
+     </div>
+   </div>
+   <div class="card">
+     <div class="card-head"><span class="card-title">You are approving</span></div>
+     <div class="card-body">
+       <div style="font-family:var(--f-display);font-size:17px;margin-bottom:8px">${esc(it.proposals[0].t)}</div>
+       <p style="color:var(--ink-soft);font-size:13.5px;max-width:74ch">${esc(it.proposals[0].d)}</p>
+       <div class="sim" style="margin-top:15px;border:1px solid var(--rule-soft)">
+         <div class="sim-c"><div class="sim-k">Rows affected</div><div class="sim-v">417</div></div>
+         <div class="sim-c"><div class="sim-k">Rules fail → pass</div><div class="sim-v ok">412</div></div>
+         <div class="sim-c"><div class="sim-k">Rules pass → fail</div><div class="sim-v ok">0</div></div>
+         <div class="sim-c"><div class="sim-k">Left open</div><div class="sim-v warn" style="color:var(--warn)">5</div></div>
+       </div>
+     </div>
+   </div>
+   <div class="card">
+     <div class="card-body">
+       <label class="fl" for="just">Justification <span class="req">— required</span></label>
+       <textarea id="just" placeholder="Why this correction is right. Recorded permanently against the published change."
+         oninput="document.getElementById('ap').disabled = this.value.trim().length < 10"></textarea>
+       <div class="btn-row">
+         <button class="btn btn-primary" id="ap" disabled onclick="decide('approved')">Approve &amp; publish</button>
+         <button class="btn btn-danger" onclick="decide('rejected')">Reject</button>
+         <span style="font-size:12.5px;color:var(--ink-faint)">The workflow has been suspended here since 03:36. It can be resumed days later without state loss.</span>
+       </div>
+     </div>
+   </div>`;
+}
+
+function scrTrace() {
+  const it = issue();
+  const rows = it.trace.map(t => `
+    <div class="tr tr-${t[0]}">
+      <div class="tr-top">
+        <span class="tr-t">${esc(t[1])}</span>
+        <span class="chip chip-neutral">${t[0] === "engine" ? "Rule engine" : t[0] === "agent" ? "Agent" : "Human"}</span>
+        <span class="tr-time">${t[2]}</span>
+      </div>
+      <div class="tr-d">${esc(t[3])}</div>
+      ${t[4] ? `<div class="tr-cost">${esc(t[4])}</div>` : ""}
+    </div>`).join("");
+
+  return ctxBar() + head("Stage 7 · Audit trace",
+    "Reconstructable end to end",
+    "Every step, joined on one correlation ID. This is what an inspector reads when they ask why a number changed — months later, without you in the room.") +
+  `<div class="card">
+     <div class="card-head"><span class="card-title">Correlation ${it.run.corr}</span>
+       <div class="spacer"></div><span class="chip chip-ok">Append-only</span></div>
+     <div class="card-body"><div class="trace">${rows}</div></div>
+   </div>
+   <p class="footnote">Nothing in this trail can be edited or deleted — the tables reject UPDATE and DELETE at the database
+   level, not by convention. That constraint is already built and tested.</p>
+   <div class="btn-row"><button class="btn" onclick="go('queue')">← Back to queue</button></div>`;
+}
+
+/* ================================================================== *
+   Render
+ * ================================================================== */
+const SCREENS = { queue: scrQueue, finding: scrFinding, invest: scrInvest,
+                  impact: scrImpact, propose: scrPropose, approve: scrApprove, trace: scrTrace };
+
+function render() {
+  $("#main").innerHTML = `<div class="screen on">${SCREENS[stage]()}</div>`;
+}
+
+function openIssue(i) { issueIx = i; decided = null; go("finding"); }
+
+function decide(what) {
+  decided = what;
+  render();
+  toast(what === "approved" ? "Published under dq_publish · audit record written" : "Proposal rejected · no data changed");
+}
+
+/* drawer */
+function showEv(id) {
+  const e = EVIDENCE[id];
+  $("#drawer-body").innerHTML = `
+    <div class="eyebrow">${e.kind}</div>
+    <h2 style="font-size:21px;margin-bottom:14px" class="mono">${id}</h2>
+    <div class="hyp-sub">Query executed</div>
+    <pre class="sql" style="margin-bottom:16px">${esc(e.q)}</pre>
+    <div class="hyp-sub">Result</div>
+    <p style="font-size:13.5px;color:var(--ink-soft);margin-bottom:16px">${esc(e.detail)}</p>
+    <div class="kv">
+      <div><div class="kv-k">Rows returned</div><div class="kv-v">${e.rows}</div></div>
+      <div><div class="kv-k">Captured</div><div class="kv-v">${e.captured}</div></div>
+    </div>
+    <div class="note" style="margin-top:18px">This record was persisted before the hypothesis citing it was written.
+    A hypothesis that cited nothing, or cited a record that does not exist, is rejected before a steward ever sees it.</div>`;
+  $("#drawer").classList.add("on");
+  $("#drawer").setAttribute("aria-hidden", "false");
+  $("#scrim").classList.add("on");
+}
+function closeDrawer() {
+  $("#drawer").classList.remove("on");
+  $("#drawer").setAttribute("aria-hidden", "true");
+  $("#scrim").classList.remove("on");
+}
+$("#scrim").onclick = closeDrawer;
+$("#drawer-x").onclick = closeDrawer;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+let toastT;
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove("on"), 3200);
+}
+
+/* theme */
+(function () {
+  let saved = null;
+  try { saved = localStorage.getItem("sc-theme"); } catch (_) {}
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  $("#theme").onclick = () => {
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark" ||
+      (!document.documentElement.hasAttribute("data-theme") &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const next = isDark ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("sc-theme", next); } catch (_) {}
+  };
+})();
+
+window.go = go; window.openIssue = openIssue; window.showEv = showEv; window.decide = decide;
+renderRail();
+render();
+</script>
