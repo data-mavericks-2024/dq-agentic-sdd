@@ -1,0 +1,24 @@
+rule_key: HCP-NPI-FORMAT
+domain: HCP
+dimension: validity
+severity: HIGH
+owning_function: Master Data Management
+subject_type: record
+parameters: {}
+
+# FR-015 — an HCP with no NPI, or one that is not ten digits.
+#
+# `coalesce` supplies a marker for the missing case because the `finding` CHECK requires every
+# record-subject finding to carry its offending value: a null there is what SC-002 exists to
+# prevent, and "the value was absent" is itself the finding.
+predicate_sql: |
+  SELECT h.hcp_id::text          AS subject_key,
+         coalesce(h.npi, '<absent>') AS offending_value,
+         NULL::text              AS observed_value,
+         '10 digits'::text       AS expected_value
+  FROM   hcp h
+  WHERE  h.batch_id    =  :batch_id
+    AND  h.valid_from <=  :as_of_date
+    AND  h.batch_id   <=  :reference_watermark
+    AND  NOT h.is_deleted
+    AND  (h.npi IS NULL OR h.npi !~ '^[0-9]{10}$')

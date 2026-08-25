@@ -1,0 +1,48 @@
+rule_key: HCP-DUP-COMPOSITE
+domain: HCP
+dimension: uniqueness
+severity: MEDIUM
+owning_function: Master Data Management
+subject_type: record
+parameters: {}
+
+# FR-016b — two HCP records matching on last name, first initial, postal code, and licence state.
+#
+# MEDIUM, not HIGH, and deliberately so: this match is *evidence* of duplication, not proof of it.
+# Two genuine practitioners can share all four attributes, and the spec's edge cases require a
+# seeded namesake pair to be an expected finding rather than a false positive.
+#
+# **Exact match on declared keys, never fuzzy** (FR-016d). `levenshtein(last_name, …) < 3` would
+# read as an improvement and is rejected at registration, because it makes "is this a duplicate?"
+# a question of degree — which is what constitution principle I removes from this layer.
+#
+# The normalisation is part of the predicate, so changing it necessarily appends a rule version and
+# FR-016c is satisfied with no separate mechanism.
+predicate_sql: |
+  SELECT h.hcp_id::text AS subject_key,
+         h.last_name || '|' || left(h.first_name, 1)
+                     || '|' || h.postal_code || '|' || h.licence_state AS offending_value,
+         NULL::text     AS observed_value,
+         NULL::text     AS expected_value
+  FROM   hcp h
+  WHERE  h.batch_id    =  :batch_id
+    AND  h.valid_from <=  :as_of_date
+    AND  h.batch_id   <=  :reference_watermark
+    AND  NOT h.is_deleted
+    AND  h.last_name     IS NOT NULL
+    AND  h.first_name    IS NOT NULL
+    AND  h.postal_code   IS NOT NULL
+    AND  h.licence_state IS NOT NULL
+    AND  EXISTS (
+           SELECT 1
+           FROM   hcp o
+           WHERE  o.valid_from <= :as_of_date
+             AND  o.batch_id   <= :reference_watermark
+             AND  NOT o.is_deleted
+             AND  o.last_name          = h.last_name
+             AND  left(o.first_name, 1) = left(h.first_name, 1)
+             AND  o.postal_code        = h.postal_code
+             AND  o.licence_state      = h.licence_state
+             AND  (o.source_system_id, o.source_key)
+                  IS DISTINCT FROM (h.source_system_id, h.source_key)
+         )

@@ -1,0 +1,55 @@
+rule_key: FEED-LATE-MISSING
+domain: SALES
+dimension: timeliness
+severity: HIGH
+owning_function: Data Engineering
+subject_type: source_period
+parameters: {}
+
+# FR-021b / FR-021d — a declared feed that arrived late, or never arrived at all.
+#
+# **This is the rule that forced `subject_type: source_period` to exist.** A feed that never
+# delivered has no batch, no row, and no record to point at. An earlier design made
+# `finding.batch_id` NOT NULL and ran rules against a batch, which meant the single most important
+# thing a steward needs to know — *nothing arrived* — was the one thing the system could not say.
+#
+# The subject is the (source, period) pair, so `subject_key` is `<code>:<YYYY-MM>` and the finding
+# carries no batch. The `finding` CHECK enforces that correspondence rather than trusting it.
+#
+# `:scope_source_system_id`, `:scope_period_start` and `:scope_period_end` are engine-bound
+# (migration 0006). Without them this rule would have to sweep every declared expectation on every
+# run, and the same missing period would re-fire under a fresh scope_key each time — breaking
+# FR-011 for the whole aggregate family.
+#
+# `active @> :scope_period_start` is what retires an expectation (FR-021c): end-dating it stops new
+# findings for later periods while leaving those already raised untouched.
+#
+# **`AT TIME ZONE 'UTC'` is load-bearing, not decoration.** `arrival_ts` is `timestamptz` while
+# `business_period` is date-typed, so this rule necessarily crosses that boundary — and an implicit
+# `timestamptz → timestamp` conversion resolves against the session TimeZone GUC, making it STABLE.
+# A feed "late" in UTC is "on time" in Asia/Singapore. Naming the zone in the predicate makes the
+# conversion IMMUTABLE and moves the answer out of the session's hands entirely; the engine pins
+# TimeZone as well, but a rule that depended on that pin would be one configuration change from
+# silently changing its verdict.
+predicate_sql: |
+  SELECT s.code || ':' || CAST(:scope_period_start AS text) AS subject_key,
+         NULL::text                                         AS offending_value,
+         coalesce(
+           (SELECT max(b.arrival_ts AT TIME ZONE 'UTC')::text
+            FROM   data_batch b
+            WHERE  b.source_system_id = f.source_system_id
+              AND  b.business_period && daterange(:scope_period_start, :scope_period_end, '[)')),
+           'never delivered')                               AS observed_value,
+         CAST(CAST(:scope_period_end AS date) + f.delivery_window AS text) AS expected_value
+  FROM   feed_expectation f
+  JOIN   source_system s ON s.source_system_id = f.source_system_id
+  WHERE  f.source_system_id = :scope_source_system_id
+    AND  f.active @> CAST(:scope_period_start AS date)
+    AND  NOT EXISTS (
+           SELECT 1
+           FROM   data_batch b
+           WHERE  b.source_system_id = f.source_system_id
+             AND  b.business_period && daterange(:scope_period_start, :scope_period_end, '[)')
+             AND  (b.arrival_ts AT TIME ZONE 'UTC')
+                  <= (CAST(:scope_period_end AS date) + f.delivery_window)
+         )

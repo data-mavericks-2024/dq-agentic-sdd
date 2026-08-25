@@ -68,11 +68,15 @@ def _assert_refused(engine: Engine, statement: str, what: str) -> None:
 
 
 def test_engine_can_read_commercial(engine_role: dict[Role, Engine], schema_prefix: str) -> None:
-    """The negative tests below are only meaningful if the role can reach the table at all."""
+    """The negative tests below are only meaningful if the role can reach the table at all.
+
+    Asserts the read *succeeds*. Comparing the count to zero would make this a test of whether
+    anything else in the session had seeded, which is not a privilege question.
+    """
     commercial = physical(Schema.COMMERCIAL, schema_prefix)
     with engine_role[Role.ENGINE].connect() as conn:
         count = conn.execute(text(f'SELECT count(*) FROM "{commercial}".hcp')).scalar_one()
-    assert count == 0
+    assert count >= 0
 
 
 @pytest.mark.parametrize(
@@ -205,10 +209,15 @@ def test_author_cannot_read_commercial(
 
 
 def test_author_can_read_rule_registry(engine_role: dict[Role, Engine], schema_prefix: str) -> None:
-    """The complement: dq_author's own tables are reachable."""
+    """The complement: dq_author's own tables are reachable.
+
+    Asserts the read *succeeds*, not that the table is empty. An earlier version compared the count
+    to zero, which quietly made this a test of whether anything else in the session had seeded —
+    and it broke the moment a rule library was registered.
+    """
     dq = physical(Schema.DQ, schema_prefix)
     with engine_role[Role.AUTHOR].connect() as conn:
-        assert conn.execute(text(f'SELECT count(*) FROM "{dq}".rule')).scalar_one() == 0
+        assert conn.execute(text(f'SELECT count(*) FROM "{dq}".rule')).scalar_one() >= 0
 
 
 # ---------------------------------------------------------------------------

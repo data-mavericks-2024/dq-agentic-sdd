@@ -1,0 +1,32 @@
+rule_key: SALES-NO-ALIGNMENT
+domain: SALES
+dimension: referential_integrity
+severity: HIGH
+owning_function: Commercial Operations
+subject_type: record
+parameters: {}
+
+# FR-018 — a sale credited to a territory the HCP was not aligned to on the transaction date.
+#
+# `@>` on a `daterange` is what makes the effective-dating exact. The range is half-open
+# `[from, to)`, the only convention under which consecutive assignments neither overlap by a day nor
+# leave a phantom one-day gap (research.md D7) — so a sale on a boundary date belongs to exactly one
+# assignment, not two and not none.
+#
+# `territory_alignment` is not a version-chain master table, so no as-of resolution applies: the
+# assignment's own effective range already answers "what was true on that date".
+predicate_sql: |
+  SELECT t.txn_id::text   AS subject_key,
+         t.territory_code AS offending_value,
+         t.txn_date::text AS observed_value,
+         NULL::text       AS expected_value
+  FROM   sales_transaction t
+  WHERE  t.batch_id = :batch_id
+    AND  NOT EXISTS (
+           SELECT 1
+           FROM   territory_alignment a
+           WHERE  a.source_system_id = t.source_system_id
+             AND  a.hcp_source_key   = t.hcp_key
+             AND  a.territory_code   = t.territory_code
+             AND  a.effective       @> t.txn_date
+         )

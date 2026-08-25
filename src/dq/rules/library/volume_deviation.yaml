@@ -1,0 +1,54 @@
+rule_key: VOL-DEVIATION
+domain: SALES
+dimension: consistency
+severity: MEDIUM
+owning_function: Commercial Analytics
+subject_type: source_period
+parameters:
+  threshold_pct: 20
+
+# FR-022 — a territory whose units moved more than the threshold against the prior period.
+#
+# The threshold lives in `parameters`, not in the SQL, so changing it appends a rule version and
+# every finding already recorded stays interpretable as what the *old* threshold meant (FR-006,
+# SC-005). A threshold inlined in the predicate would still version correctly, but nobody could read
+# the registry and see what the number was without parsing SQL.
+#
+# **This rule is the designated "the rule is wrong, not the data" scenario** (constitution X). A
+# planned territory realignment moves real volume by more than 20%, the data is entirely correct,
+# and the right resolution is a new rule version rather than a correction. T050 seeds exactly that
+# case, because a golden set that only ever contains real defects trains a steward to approve.
+#
+# The comparison window is the scope period's own length, so a monthly scope compares against the
+# previous month and a weekly one against the previous week, with no separate configuration.
+predicate_sql: |
+  WITH scope_period AS (
+    SELECT t.territory_code,
+           sum(t.quantity) AS units
+    FROM   sales_transaction t
+    WHERE  t.source_system_id = :scope_source_system_id
+      AND  t.txn_date >= CAST(:scope_period_start AS date)
+      AND  t.txn_date <  CAST(:scope_period_end AS date)
+      AND  t.batch_id <= :reference_watermark
+    GROUP  BY t.territory_code
+  ),
+  prior_period AS (
+    SELECT t.territory_code,
+           sum(t.quantity) AS units
+    FROM   sales_transaction t
+    WHERE  t.source_system_id = :scope_source_system_id
+      AND  t.txn_date >= CAST(:scope_period_start AS date)
+                         - (CAST(:scope_period_end AS date)
+                            - CAST(:scope_period_start AS date))
+      AND  t.txn_date <  CAST(:scope_period_start AS date)
+      AND  t.batch_id <= :reference_watermark
+    GROUP  BY t.territory_code
+  )
+  SELECT c.territory_code AS subject_key,
+         NULL::text       AS offending_value,
+         round(abs(c.units - p.units) / p.units * 100, 1)::text AS observed_value,
+         (:threshold_pct)::text                                 AS expected_value
+  FROM   scope_period c
+  JOIN   prior_period p ON p.territory_code = c.territory_code
+  WHERE  p.units > 0
+    AND  abs(c.units - p.units) / p.units * 100 > :threshold_pct

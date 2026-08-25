@@ -83,6 +83,39 @@ def assert_current_user(conn: Connection, expected: Role) -> None:
         )
 
 
+def session_settings_for(prefix: str = "") -> dict[str, str]:
+    """What :func:`pin_session` will pin, without needing a connection.
+
+    ``rule_run.session_settings`` is written when the run is opened, which happens in a different
+    transaction from the one that executes the predicates. Deriving the value rather than capturing
+    it keeps the recorded settings and the applied settings the same object of truth.
+    """
+    pinned = dict(SESSION_SETTINGS)
+    pinned["search_path"] = schemas.search_path(prefix)
+    return pinned
+
+
+@contextmanager
+def connection(settings: Settings, role: Role) -> Iterator[Connection]:
+    """Open a connection as ``role`` with **no** enclosing transaction.
+
+    For callers that need several transactions on one session — the rule runner opens its run in
+    one, evaluates in another, and closes in a third, so that a catastrophic failure still leaves a
+    ``rule_run`` row behind to explain itself.
+    """
+    engine = make_engine(settings.role_url(role), settings.schema_prefix)
+    try:
+        with engine.connect() as conn:
+            assert_current_user(conn, role)
+            # The identity check ran a statement, which autobegins a transaction. Leaving it open
+            # would make the caller's first `conn.begin()` raise — the whole point of this helper is
+            # that the caller owns the transaction boundaries, so hand it back a clean connection.
+            conn.rollback()
+            yield conn
+    finally:
+        engine.dispose()
+
+
 def pin_session(conn: Connection, prefix: str = "") -> dict[str, str]:
     """Issue the four ``SET LOCAL`` settings and return what was pinned.
 
@@ -92,9 +125,11 @@ def pin_session(conn: Connection, prefix: str = "") -> dict[str, str]:
     pinned = dict(SESSION_SETTINGS)
     pinned["search_path"] = schemas.search_path(prefix)
     for key, value in pinned.items():
-        # SET LOCAL takes no bind parameters. `key` is from the module-level constant above and
-        # `search_path` is built from validated identifiers, so neither is caller-controlled.
-        conn.execute(text(f"SET LOCAL {key} = :value").bindparams(value=value))
+        # `set_config(name, value, is_local)` rather than `SET LOCAL`. SET is a *utility* statement,
+        # so PostgreSQL will not accept a bind parameter in it — `SET LOCAL TimeZone = $1` is a
+        # syntax error. set_config is an ordinary function, takes both sides as parameters, and with
+        # is_local = true has exactly the transaction-scoped effect SET LOCAL would have had.
+        conn.execute(text("SELECT set_config(:key, :value, true)"), {"key": key, "value": value})
     return pinned
 
 

@@ -100,35 +100,35 @@ finding set equals the generator-emitted expected set (SC-001).
 
 > Write these first and confirm they fail before implementing.
 
-- [ ] T031 [P] [US1] Unit tests for rule-definition validation in `tests/unit/test_rule_definition.py` — one failing case per validation rule, including a predicate containing `CURRENT_DATE`
-- [ ] T031a [P] [US1] Negative test in `tests/unit/test_rule_definition.py` asserting a predicate using `levenshtein`, `similarity`, or a pg_trgm operator is rejected at registration (FR-016d)
-- [ ] T032 [P] [US1] Contract test for the four-column predicate output contract in `tests/contract/test_predicate_contract.py`
-- [ ] T033 [P] [US1] Golden set-equality test in `tests/integration/test_golden_findings.py` asserting produced findings == expected findings across all nine rule families (SC-001)
-- [ ] T033a [P] [US1] Integration test in `tests/integration/test_missing_feed.py` asserting a declared feed with no batch in a period produces a `source_period` finding — including a feed that has never delivered anything since being declared (SC-009, FR-021d)
+- [X] T031 [P] [US1] Unit tests for rule-definition validation in `tests/unit/test_rule_definition.py` — one failing case per validation rule, including a predicate containing `CURRENT_DATE`
+- [X] T031a [P] [US1] Negative test in `tests/unit/test_rule_definition.py` asserting a predicate using `levenshtein`, `similarity`, or a pg_trgm operator is rejected at registration (FR-016d)
+- [X] T032 [P] [US1] Contract test for the four-column predicate output contract in `tests/contract/test_predicate_contract.py`
+- [X] T033 [P] [US1] Golden set-equality test in `tests/integration/test_golden_findings.py` asserting produced findings == expected findings across all nine rule families (SC-001)
+- [X] T033a [P] [US1] Integration test in `tests/integration/test_missing_feed.py` asserting a declared feed with no batch in a period produces a `source_period` finding — including a feed that has never delivered anything since being declared (SC-009, FR-021d)
 
 ### Implementation
 
-- [ ] T034 [P] [US1] Implement the `RuleDefinition` Pydantic model in `src/dq/rules/definition.py` per contracts/rule-definition.md
-- [ ] T035 [US1] Implement predicate parsing and the eight validation rules in `src/dq/rules/predicates.py`, mirroring the T025 trigger so failures surface as `RuleDefinitionError` before reaching the database
-- [ ] T035a [US1] Shared-corpus agreement test in `tests/integration/test_validation_parity.py`: one corpus of invalid predicates, each asserted rejected by **both** the Python validator (T035) and the database trigger (T025). Drift between the two is otherwise silent, and the trigger is the one that actually enforces constitution principle I
-- [ ] T036 [US1] Implement registry registration and lookup in `src/dq/rules/registry.py` (version creation deferred to US2)
-- [ ] T037 [US1] Implement scope resolution in `src/dq/engine/runner.py`: `BatchScope` and `SourcePeriodScope`, deriving `as_of_date` and `reference_watermark` and writing them to `rule_run`
-- [ ] T038 [US1] Implement rule execution in `src/dq/engine/runner.py`: advisory lock per `(scope_key, rule_version_id)`, then one `INSERT … SELECT … ON CONFLICT DO NOTHING` per rule version
-- [ ] T039 [US1] Implement per-rule error capture in `src/dq/engine/runner.py`: record `ERRORED` with detail, continue remaining rules, and close the run `COMPLETED_WITH_ERRORS` rather than `COMPLETED`
-- [ ] T040 [P] [US1] Rule FR-015 — missing or structurally invalid NPI — in `src/dq/rules/library/hcp_npi_format.yaml`
-- [ ] T041 [P] [US1] Rule FR-016a — HCP records sharing an NPI under distinct surrogate keys, High severity — in `src/dq/rules/library/hcp_dup_npi.yaml`
-- [ ] T042 [P] [US1] Rule FR-016b — HCP composite match on last name, first initial, postal code, licence state, Medium severity — in `src/dq/rules/library/hcp_dup_composite.yaml`
-- [ ] T043 [P] [US1] Rule FR-017 — sales referencing a product or HCP absent from master data — in `src/dq/rules/library/sales_orphan_ref.yaml`
-- [ ] T044 [P] [US1] Rule FR-018 — sales attributed to a territory with no active alignment on the transaction date — in `src/dq/rules/library/sales_no_alignment.yaml`
-- [ ] T045 [P] [US1] Rule FR-019 — overlapping or gapped alignment effective ranges — in `src/dq/rules/library/alignment_overlap_gap.yaml`
-- [ ] T046 [P] [US1] Rule FR-020 — unit-of-measure inconsistency between sales and product master — in `src/dq/rules/library/sales_uom_mismatch.yaml`
-- [ ] T047 [P] [US1] Rule FR-021b — late or missing feed, `subject_type: source_period` — in `src/dq/rules/library/feed_late_missing.yaml`
-- [ ] T048 [P] [US1] Rule FR-022 — period-over-period volume deviation beyond a per-rule threshold — in `src/dq/rules/library/volume_deviation.yaml`
-- [ ] T049 [US1] Implement the synthetic data generator in `src/dq/seed/generator.py`: at least three consecutive periods, versioned master records, and **guaranteed composite-key uniqueness among non-defect HCPs** so FR-016b cannot collide by coincidence
-- [ ] T049a [US1] Seed the feed expectation catalogue in `src/dq/seed/generator.py`: at least two declared feeds, one delivering on cadence and one with a deliberately absent period (FR-021a)
-- [ ] T050 [US1] Implement defect injection in `src/dq/seed/defects.py`, **emitting the expected finding set as it injects** rather than relying on a hand-maintained list; include the namesake pair required by the spec's edge cases; and seed one **rule-is-wrong** scenario — a volume-deviation rule whose threshold is stale relative to a legitimate business change, firing against data that is entirely correct. Constitution X requires that scenario in the golden set before any agent capability is built against it, and Feature 1 is where seed data exists; retrofitting it at Feature 3 means seeding backwards from an agent conclusion
-- [ ] T051 [US1] Implement `dq seed` and `dq run-rules` in `src/dq/cli.py`, supporting both `--batch-id` and `--source/--period` scopes
-- [ ] T052 [US1] Write the volume test in `tests/volume/test_rule_run_scale.py`, generating data server-side with `generate_series` and asserting a full run completes in under 10 minutes (SC-008)
+- [X] T034 [P] [US1] Implement the `RuleDefinition` Pydantic model in `src/dq/rules/definition.py` per contracts/rule-definition.md
+- [X] T035 [US1] Implement predicate parsing and the eight validation rules in `src/dq/rules/predicates.py`, mirroring the T025 trigger so failures surface as `RuleDefinitionError` before reaching the database
+- [X] T035a [US1] Shared-corpus agreement test in `tests/integration/test_validation_parity.py`: one corpus of invalid predicates, each asserted rejected by **both** the Python validator (T035) and the database trigger (T025). Drift between the two is otherwise silent, and the trigger is the one that actually enforces constitution principle I
+- [X] T036 [US1] Implement registry registration and lookup in `src/dq/rules/registry.py` (version creation deferred to US2)
+- [X] T037 [US1] Implement scope resolution in `src/dq/engine/runner.py`: `BatchScope` and `SourcePeriodScope`, deriving `as_of_date` and `reference_watermark` and writing them to `rule_run`
+- [X] T038 [US1] Implement rule execution in `src/dq/engine/runner.py`: advisory lock per `(scope_key, rule_version_id)`, then one `INSERT … SELECT … ON CONFLICT DO NOTHING` per rule version
+- [X] T039 [US1] Implement per-rule error capture in `src/dq/engine/runner.py`: record `ERRORED` with detail, continue remaining rules, and close the run `COMPLETED_WITH_ERRORS` rather than `COMPLETED`
+- [X] T040 [P] [US1] Rule FR-015 — missing or structurally invalid NPI — in `src/dq/rules/library/hcp_npi_format.yaml`
+- [X] T041 [P] [US1] Rule FR-016a — HCP records sharing an NPI under distinct surrogate keys, High severity — in `src/dq/rules/library/hcp_dup_npi.yaml`
+- [X] T042 [P] [US1] Rule FR-016b — HCP composite match on last name, first initial, postal code, licence state, Medium severity — in `src/dq/rules/library/hcp_dup_composite.yaml`
+- [X] T043 [P] [US1] Rule FR-017 — sales referencing a product or HCP absent from master data — in `src/dq/rules/library/sales_orphan_ref.yaml`
+- [X] T044 [P] [US1] Rule FR-018 — sales attributed to a territory with no active alignment on the transaction date — in `src/dq/rules/library/sales_no_alignment.yaml`
+- [X] T045 [P] [US1] Rule FR-019 — overlapping or gapped alignment effective ranges — in `src/dq/rules/library/alignment_overlap_gap.yaml`
+- [X] T046 [P] [US1] Rule FR-020 — unit-of-measure inconsistency between sales and product master — in `src/dq/rules/library/sales_uom_mismatch.yaml`
+- [X] T047 [P] [US1] Rule FR-021b — late or missing feed, `subject_type: source_period` — in `src/dq/rules/library/feed_late_missing.yaml`
+- [X] T048 [P] [US1] Rule FR-022 — period-over-period volume deviation beyond a per-rule threshold — in `src/dq/rules/library/volume_deviation.yaml`
+- [X] T049 [US1] Implement the synthetic data generator in `src/dq/seed/generator.py`: at least three consecutive periods, versioned master records, and **guaranteed composite-key uniqueness among non-defect HCPs** so FR-016b cannot collide by coincidence
+- [X] T049a [US1] Seed the feed expectation catalogue in `src/dq/seed/generator.py`: at least two declared feeds, one delivering on cadence and one with a deliberately absent period (FR-021a)
+- [X] T050 [US1] Implement defect injection in `src/dq/seed/defects.py`, **emitting the expected finding set as it injects** rather than relying on a hand-maintained list; include the namesake pair required by the spec's edge cases; and seed one **rule-is-wrong** scenario — a volume-deviation rule whose threshold is stale relative to a legitimate business change, firing against data that is entirely correct. Constitution X requires that scenario in the golden set before any agent capability is built against it, and Feature 1 is where seed data exists; retrofitting it at Feature 3 means seeding backwards from an agent conclusion
+- [X] T051 [US1] Implement `dq seed` and `dq run-rules` in `src/dq/cli.py`, supporting both `--batch-id` and `--source/--period` scopes
+- [X] T052 [US1] Write the volume test in `tests/volume/test_rule_run_scale.py`, generating data server-side with `generate_series` and asserting a full run completes in under 10 minutes (SC-008)
 
 **Checkpoint**: US1 is fully functional and independently testable. **Run T052 now, not later** —
 it is the check that catches an architecturally wrong design, and its entire value lies in catching

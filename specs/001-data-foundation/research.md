@@ -231,6 +231,32 @@ Against a 500 MB ceiling that leaves **271 MB of headroom**, so T052 is buildabl
 the R1 storage risk is closed. The compute half of R1 is untouched by this and is still open until
 T052 actually runs.
 
+### T052 measured — both halves of R1 are now closed
+
+Run on 2026-08-25 against the free-tier project, 1M `sales_transaction` rows and 100K versioned
+`hcp` rows generated server-side:
+
+| Measure | Result | Budget | Margin |
+|---|---|---|---|
+| Full rule run, seven record-level rules | **22.3 s** | 600 s (SC-008) | **27× under** |
+| Dataset on disk, with indexes | **199.2 MB** | 500 MB | 301 MB spare |
+
+The projection above over-estimated by 15% (229 MB predicted, 199 MB actual), which is the right
+direction to be wrong in.
+
+**22 seconds against a ten-minute budget is not a near miss, and the margin is the finding.** It
+says the set-based decision in D1 was not merely sufficient but decisive: nine statements over a
+million rows costs the same order of magnitude as nine statements over a thousand. `t4g.nano` was
+the stated risk and it is not close to being the constraint — which also means the 10-minute figure
+in SC-008 could be tightened substantially if a later feature wants a stricter guarantee, rather
+than being a target to defend.
+
+Two caveats, so the number is not read as more than it is. The volume dataset is deliberately clean,
+so all seven rules returned zero findings — the timing measures predicate evaluation and not the
+insert path, which is where a defect-heavy batch would spend its time. And the two aggregate rules
+are excluded, because a batch scope does not evaluate them; a `source_period` run over a million
+rows has not been timed.
+
 **Indexes dominate, and that is the number worth remembering.** They are 51% of
 `sales_transaction`'s footprint and 67% of `hcp`'s — the four-column `COLLATE "C"` composite-match
 index costs more than the rows it indexes. Two consequences: an estimate derived from column widths

@@ -1,0 +1,41 @@
+rule_key: SALES-UOM-MISMATCH
+domain: SALES
+dimension: consistency
+severity: HIGH
+owning_function: Commercial Operations
+subject_type: record
+parameters: {}
+
+# FR-020 — a transaction whose unit of measure disagrees with the product master.
+#
+# This is the canonical as-of join idiom, and the reason it exists. `product` is an append-only
+# version chain, so "the product's UoM" is meaningless without a date: the answer is the version
+# with the greatest `valid_from` not after `:as_of_date`, among versions delivered no later than
+# `:reference_watermark`.
+#
+# **Both parameters, always.** Omitting `:reference_watermark` is the most dangerous mistake
+# available in this contract — the predicate still returns plausible rows and still passes the
+# determinism test, which runs twice within the same minute, while silently breaking every
+# historical re-run. The registration trigger rejects a master join missing either one.
+#
+# `ORDER BY valid_from DESC LIMIT 1` is a total ordering because `(source_system_id, source_key,
+# valid_from)` is unique — which is what makes the tie-break deterministic rather than plan-dependent.
+predicate_sql: |
+  SELECT t.txn_id::text AS subject_key,
+         t.uom          AS offending_value,
+         t.uom          AS observed_value,
+         p.uom          AS expected_value
+  FROM   sales_transaction t
+  JOIN   LATERAL (
+           SELECT p2.uom, p2.is_deleted
+           FROM   product p2
+           WHERE  p2.source_system_id = t.source_system_id
+             AND  p2.source_key       = t.product_key
+             AND  p2.valid_from      <= :as_of_date
+             AND  p2.batch_id        <= :reference_watermark
+           ORDER  BY p2.valid_from DESC
+           LIMIT  1
+         ) p ON NOT p.is_deleted
+  WHERE  t.batch_id = :batch_id
+    AND  p.uom IS NOT NULL
+    AND  t.uom <> p.uom

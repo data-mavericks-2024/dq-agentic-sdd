@@ -1,0 +1,57 @@
+rule_key: ALIGN-OVERLAP-GAP
+domain: TERRITORY_ALIGNMENT
+dimension: consistency
+severity: MEDIUM
+owning_function: Field Operations
+subject_type: record
+parameters: {}
+
+# FR-019 — an HCP's alignment history that overlaps itself, or leaves a hole.
+#
+# This rule is only testable because `territory_alignment` carries **no exclusion constraint**. An
+# earlier design had `EXCLUDE USING gist (hcp_id WITH =, effective WITH &&)`, which made the overlap
+# defect uninsertable — so it could never be seeded, and SC-001's "every injected defect is
+# detected" could not cover it (research.md D7).
+#
+# Two conditions, one rule, because a steward reads "this HCP's alignment history is wrong" as one
+# problem:
+#   overlap — another assignment for the same HCP intersects this one
+#   gap     — a later assignment starts after this one ends, with nothing covering the join
+#
+# `lower`, `upper`, `&&` and `@>` on a daterange are all IMMUTABLE, so the whole predicate is
+# replayable. Rendering the range with `::text` is deterministic because the engine pins DateStyle
+# (research.md D10) — without that pin the same range would render differently for different
+# clients and the offending value would drift.
+predicate_sql: |
+  SELECT a.alignment_id::text AS subject_key,
+         a.effective::text    AS offending_value,
+         a.hcp_source_key     AS observed_value,
+         NULL::text           AS expected_value
+  FROM   territory_alignment a
+  WHERE  a.batch_id = :batch_id
+    AND  (
+           EXISTS (
+             SELECT 1
+             FROM   territory_alignment b
+             WHERE  b.source_system_id = a.source_system_id
+               AND  b.hcp_source_key   = a.hcp_source_key
+               AND  b.alignment_id    <> a.alignment_id
+               AND  b.effective       && a.effective
+           )
+           OR (
+             EXISTS (
+               SELECT 1
+               FROM   territory_alignment c
+               WHERE  c.source_system_id  = a.source_system_id
+                 AND  c.hcp_source_key    = a.hcp_source_key
+                 AND  lower(c.effective)  > upper(a.effective)
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM   territory_alignment d
+               WHERE  d.source_system_id = a.source_system_id
+                 AND  d.hcp_source_key   = a.hcp_source_key
+                 AND  d.effective       @> upper(a.effective)
+             )
+           )
+         )

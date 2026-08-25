@@ -681,3 +681,131 @@ uv run pytest                 # 31 pass
 uv run alembic upgrade head   # at 0005
 uv run python scripts/db_state.py
 ```
+
+---
+
+## Session 4 — 2026-08-25 — `/speckit-implement`, Phase 3 (T031–T052)
+
+**Result: all 22 tasks complete. 56 of 83 overall.** 119 tests pass, mypy strict clean across 53
+files, ruff clean. Migrations at `0007`.
+
+**SC-001 holds: the produced finding set equals the expected set across all nine rule families,
+with zero false positives.**
+
+### T052 — the answer, and it is not close
+
+| Measure | Result | Budget | Margin |
+|---|---|---|---|
+| Full rule run, 1M transactions + 100K HCPs | **22.3 s** | 600 s | **27× under** |
+| Dataset on disk with indexes | **199.2 MB** | 500 MB | 301 MB spare |
+
+**R1, the largest technical risk in the design, is closed on both axes.** The storage projection
+from Session 3 over-estimated by 15% — right direction to be wrong in.
+
+22 seconds against a ten-minute budget says the set-based decision (D1) was decisive rather than
+merely sufficient: nine statements over a million rows cost the same order as nine over a thousand.
+`t4g.nano` was the stated risk and is nowhere near the constraint. SC-008's 10-minute figure could
+be tightened substantially if a later feature wants a stricter guarantee.
+
+Two caveats so the number is not over-read: the volume dataset is clean, so all seven rules returned
+zero findings — the timing measures predicate evaluation, not the insert path where a defect-heavy
+batch would spend its time. And a `source_period` run over a million rows has not been timed, since
+a batch scope does not evaluate aggregate rules.
+
+### What exists now
+
+```
+src/dq/rules/definition.py       RuleDefinition + YAML loading
+src/dq/rules/predicates.py       validator mirroring the trigger (8 rules + FR-016d + 8b)
+src/dq/rules/registry.py         register / version / activate
+src/dq/rules/library/*.yaml      the nine rule families
+src/dq/engine/runner.py          scope resolution, set-based execution, per-rule error capture
+src/dq/seed/generator.py         3 periods, 2 sources, versioned master chains
+src/dq/seed/defects.py           injection + the expected finding set
+src/dq/cli.py                    dq seed / run-rules / rules register
+tests/                           119 passing; volume suite separately marked
+```
+
+### Six failures, each a real defect the tests found
+
+Every one of these was invisible in the design and would have been invisible in review.
+
+**1. `SET LOCAL` cannot take a bind parameter.** `SET LOCAL TimeZone = $1` is a syntax error — SET
+is a *utility* statement. Written in Phase 2 and never exercised, because nothing called
+`pin_session` until the runner did. Now `set_config(name, value, true)`, which is an ordinary
+function and has the same transaction scope.
+
+**2. The pinned session evaporated between transactions.** `set_config(..., is_local => true)` is
+transaction-scoped by design — that is what stops one run's environment leaking into the next. The
+runner deliberately uses three transactions so a catastrophic failure still leaves a `rule_run` row
+behind, and two of them had no `search_path`, so every unqualified table name failed to resolve.
+Pinning is now the first statement of every transaction.
+
+**3. Range objects have no working adapter through raw `text()`.** SQLAlchemy's `Range` cannot be
+adapted by psycopg; psycopg's own `Range` has no `.bounds` to read the convention back off. Ranges
+are now built in SQL from two date parameters, and read back with `lower()`/`upper()`. The half-open
+`[)` convention is stated at each call site, which is better than carrying it in a type.
+
+**4. `:name::type` registers cleanly and cannot execute.** The driver declines to bind `:name` when
+a colon follows it — that is how it tells a cast from a marker — so the marker survives into the
+statement. Two of the nine rules were written this way. They passed all eight validation rules,
+registered, and then failed at run time.
+
+The engine handled it correctly: both were recorded `ERRORED` and the run closed
+`COMPLETED_WITH_ERRORS`. But the outcome is a rule contributing nothing for an entire scope, which
+is the failure a steward is least likely to notice — the numbers just go quiet. Added as **rule 8b**
+on both sides (migration 0007) so it is an authoring error, not a recurring runtime surprise.
+
+**5. `:name` inside a SQL comment becomes a required bind parameter.** `text()` scans comments too.
+A note explaining the rule-8b fix, written inside the statement it explained, broke that statement.
+
+**6. Two Phase 2 privilege tests asserted `count(*) == 0`.** That tested emptiness, not readability,
+and broke the moment anything seeded in the same session. Now `>= 0` — the assertion is that the
+read *succeeds*.
+
+### A password reached test output
+
+`Settings` is a dataclass, and pytest printed its repr in a fixture header — including the
+connection URL with the password in it. Fixed by excluding the field from `repr` and redacting in a
+custom one. The transcript files containing it were deleted.
+
+Worth stating plainly: dataclass reprs surface in pytest headers, exception context, log lines, and
+debuggers — every one of them outside the module's control. Redaction at the type is the only
+defence, not defence in depth.
+
+### Decisions taken during implementation
+
+| Decision | Why |
+|---|---|
+| Three new engine-bound parameters (`scope_source_system_id`, `scope_period_start`, `scope_period_end`) | A `source_period` rule has no batch to anchor to and could not tell which feed it was asked about. It would have had to sweep every declared expectation on every run, and the same missing period would re-fire under a fresh `scope_key` each time — the duplication the uniqueness key was rekeyed to prevent. Migration 0006 |
+| Trigger SQL extracted to `dq/db/sql_objects.py` | A 300-line PL/pgSQL body inlined in a migration is frozen at that revision. Changing it means editing an applied migration (never reaches a database that ran it) or pasting a second copy (drifts). `CREATE OR REPLACE` plus a re-applying migration keeps one source of truth |
+| `AT TIME ZONE 'UTC'` inside the feed rule | The rule crosses `timestamptz` → date, and an implicit conversion resolves against the session GUC, making it STABLE. Naming the zone makes it IMMUTABLE and takes the answer out of the session's hands — the engine pins TimeZone too, but a rule depending on that pin is one config change from silently changing its verdict |
+| `dq_author` owns `feed_expectation` | A feed expectation is authored configuration of the same kind as a rule. `dq_ingest` loads data and is deliberately blind to quality metadata |
+| Rule 6 checks *every* `ORDER BY`, not the last | A ranking function's ordering lives inside its `OVER (…)` clause; reading past the closing paren found unique columns elsewhere in the predicate and passed a non-total ordering |
+| Orphaned HCP keys get alignments before injection | Otherwise the orphan-reference defect also raises SALES-NO-ALIGNMENT — a real finding belonging to nothing, and enough on its own to fail set equality |
+
+### Known limitations, carried forward
+
+1. **The volume timing measures evaluation, not insertion.** A defect-heavy batch at scale is untimed.
+2. **Aggregate rules are untimed at scale.**
+3. **Rule 6 is still an approximation** — it checks that the final `ORDER BY` term names a
+   known-unique column, not that the ordering is provably total.
+4. **`SUPABASE_DB_POOLED_URL` is still malformed** in `.env` — unused in Feature 1, will fail the
+   moment something reads it.
+5. **Principle VII remains unenforced**, as designed. Synthetic data only, no prompt boundary yet.
+
+### Next
+
+Phase 4 (US2, T053–T058) — rule governance: versioning semantics, deactivation, and the SC-007
+extensibility test with its no-diff guard. Then US3 (reproducibility, T059–T064) and US4 (query and
+summary, T065–T070).
+
+US3 is the one that matters most: T060 re-runs a historical period after later master data has
+arrived and asserts the finding set is identical. That is the test the first design would have
+failed, and the reason the as-of machinery exists.
+
+```powershell
+uv run pytest                 # 119 pass
+uv run pytest -m volume       # 2 pass, ~110s
+uv run alembic upgrade head   # at 0007
+```

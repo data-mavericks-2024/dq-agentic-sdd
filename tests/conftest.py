@@ -34,7 +34,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Connection, Engine, create_engine, text
 
-from dq.config.settings import Role, as_psycopg_url, load_dotenv
+from dq.config.settings import Role, Settings, as_psycopg_url, load_dotenv, load_settings
+from dq.db import engine as db
 from dq.db.schemas import ALL_SCHEMAS, Schema, physical
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
@@ -197,3 +198,29 @@ def admin_engine(test_database_url: str) -> Iterator[Engine]:
 def phys_schema(schema_prefix: str) -> dict[Schema, str]:
     """Physical schema names for this session."""
     return {schema: physical(schema, schema_prefix) for schema in ALL_SCHEMAS}
+
+
+@pytest.fixture(scope="session")
+def settings(schema_prefix: str) -> Settings:
+    """Settings resolved *after* the prefix fixture has set ``DQ_SCHEMA_PREFIX``.
+
+    Depending on ``schema_prefix`` is what orders these correctly: reading settings first would
+    capture an empty prefix, and every connection built from it would then point at the development
+    schemas rather than the isolated test ones.
+
+    Lives in the root conftest so both the integration and volume suites can use it.
+    """
+    return load_settings()
+
+
+@pytest.fixture(scope="session")
+def findings_reader(settings: Settings) -> Iterator[Connection]:
+    """A read-only connection for asserting against what was persisted.
+
+    Connects as ``dq_readonly`` deliberately: if these assertions can be made through the
+    investigation role, then Feature 3's agents can make them too, and the grant matrix is proven
+    sufficient rather than assumed so.
+    """
+    with db.connection(settings, Role.READONLY) as conn, conn.begin():
+        db.pin_session(conn, settings.schema_prefix)
+        yield conn

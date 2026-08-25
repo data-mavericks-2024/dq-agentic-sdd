@@ -1,0 +1,38 @@
+rule_key: HCP-DUP-NPI
+domain: HCP
+dimension: uniqueness
+severity: HIGH
+owning_function: Master Data Management
+subject_type: record
+parameters: {}
+
+# FR-016a — two HCP records sharing an NPI under distinct natural keys.
+#
+# The natural key is `(source_system_id, source_key)`, not `hcp_id`: `hcp_id` identifies a *version*,
+# so comparing on it would flag every re-delivery of a record as a duplicate of its own prior copy.
+# That was the defect append-only version chains were introduced to fix (research.md D9).
+#
+# The subject side is restricted to the batch under evaluation; the comparison side spans every
+# version visible at the watermark, because the duplication this rule exists to catch is
+# cross-source and cross-period.
+predicate_sql: |
+  SELECT h.hcp_id::text AS subject_key,
+         h.npi          AS offending_value,
+         NULL::text     AS observed_value,
+         NULL::text     AS expected_value
+  FROM   hcp h
+  WHERE  h.batch_id    =  :batch_id
+    AND  h.valid_from <=  :as_of_date
+    AND  h.batch_id   <=  :reference_watermark
+    AND  NOT h.is_deleted
+    AND  h.npi IS NOT NULL
+    AND  EXISTS (
+           SELECT 1
+           FROM   hcp o
+           WHERE  o.npi         =  h.npi
+             AND  o.valid_from <=  :as_of_date
+             AND  o.batch_id   <=  :reference_watermark
+             AND  NOT o.is_deleted
+             AND  (o.source_system_id, o.source_key)
+                  IS DISTINCT FROM (h.source_system_id, h.source_key)
+         )

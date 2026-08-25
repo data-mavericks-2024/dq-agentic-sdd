@@ -1,0 +1,51 @@
+rule_key: SALES-ORPHAN-REF
+domain: SALES
+dimension: referential_integrity
+severity: HIGH
+owning_function: Commercial Operations
+subject_type: record
+parameters: {}
+
+# FR-017 — a sales transaction naming a product or an HCP that no master record covers.
+#
+# This is detectable only because `sales_transaction.product_key` and `hcp_key` are **text, not
+# foreign keys**. A foreign key would reject the orphaned row at insert and make the defect
+# permanently invisible — constraints protect referential truth, rules detect data-quality defects,
+# and where they conflict the rule wins (data-model.md).
+#
+# The offending value names which side is missing, because "this transaction is an orphan" without
+# saying of what sends a steward back to the query.
+predicate_sql: |
+  SELECT t.txn_id::text AS subject_key,
+         CASE
+           WHEN NOT EXISTS (
+                  SELECT 1 FROM hcp h
+                  WHERE  h.source_system_id = t.source_system_id
+                    AND  h.source_key       = t.hcp_key
+                    AND  h.valid_from      <= :as_of_date
+                    AND  h.batch_id        <= :reference_watermark
+                    AND  NOT h.is_deleted)
+             THEN 'hcp:' || t.hcp_key
+           ELSE 'product:' || t.product_key
+         END          AS offending_value,
+         NULL::text   AS observed_value,
+         NULL::text   AS expected_value
+  FROM   sales_transaction t
+  WHERE  t.batch_id = :batch_id
+    AND  (
+           NOT EXISTS (
+             SELECT 1 FROM hcp h
+             WHERE  h.source_system_id = t.source_system_id
+               AND  h.source_key       = t.hcp_key
+               AND  h.valid_from      <= :as_of_date
+               AND  h.batch_id        <= :reference_watermark
+               AND  NOT h.is_deleted)
+           OR
+           NOT EXISTS (
+             SELECT 1 FROM product p
+             WHERE  p.source_system_id = t.source_system_id
+               AND  p.source_key       = t.product_key
+               AND  p.valid_from      <= :as_of_date
+               AND  p.batch_id        <= :reference_watermark
+               AND  NOT p.is_deleted)
+         )

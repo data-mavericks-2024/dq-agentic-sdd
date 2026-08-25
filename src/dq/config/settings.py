@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -134,10 +134,22 @@ def as_psycopg_url(url: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """Resolved configuration for one process."""
+    """Resolved configuration for one process.
+
+    ``stateful_url`` is excluded from ``repr`` and the generated one is replaced, because a
+    connection string carries a password and dataclass reprs surface in places nobody audits —
+    pytest fixture headers, exception context, log lines, a debugger. This is not defence in depth;
+    it is the only defence, since every one of those sites is outside this module's control.
+    """
 
     schema_prefix: str
-    stateful_url: str
+    stateful_url: str = field(repr=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"Settings(schema_prefix={self.schema_prefix!r}, "
+            f"stateful_url={redact(self.stateful_url)!r})"
+        )
 
     @property
     def is_prefixed(self) -> bool:
