@@ -121,7 +121,12 @@
       "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; uv run ruff check . --fix --output-format concise 2>&1 | Select-Object -Last 3; uv run ruff format . 2>&1 | Select-Object -Last 1; uv run mypy . 2>&1 | Select-Object -Last 2; uv run python scripts/scrub_settings.py; git add -A; uv run python scripts/check_staged_for_secrets.py; \"EXIT: $LASTEXITCODE\")",
       "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; uv run python scripts/_explain_match.py scripts/scrub_settings.py)",
       "Bash(perl -0pi -e ' *)",
-      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; Remove-Item -Force scripts/_explain_match.py; uv run ruff check . --fix --output-format concise 2>&1 | Select-Object -Last 3; uv run ruff format . 2>&1 | Select-Object -Last 1; uv run mypy . 2>&1 | Select-Object -Last 2; uv run python scripts/scrub_settings.py; git add -A; uv run python scripts/check_staged_for_secrets.py; \"EXIT: $LASTEXITCODE\")"
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; Remove-Item -Force scripts/_explain_match.py; uv run ruff check . --fix --output-format concise 2>&1 | Select-Object -Last 3; uv run ruff format . 2>&1 | Select-Object -Last 1; uv run mypy . 2>&1 | Select-Object -Last 2; uv run python scripts/scrub_settings.py; git add -A; uv run python scripts/check_staged_for_secrets.py; \"EXIT: $LASTEXITCODE\")",
+      "Bash(perl -0pi -e 's/^from dataclasses import dataclass$/from dataclasses import dataclass\\\\nfrom datetime import date/m' src/dq/rules/registry.py)",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; uv run pytest tests/unit/test_version_semantics.py -q 2>&1 | Select-Object -Last 12)",
+      "Bash(perl -0pi -e 's/^from typing import Any$/from collections.abc import Iterator\\\\nfrom typing import Any/m; s/^from dq\\\\.rules\\\\.registry import register$/from dq.rules.registry import register, set_active/m' tests/integration/test_rule_versioning.py)",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; Remove-Item -Force all.txt -ErrorAction SilentlyContinue; foreach \\($c in @\\(\"--help\",\"rules --help\",\"rules register --help\",\"rules deactivate --help\",\"run-rules --help\",\"seed --help\"\\)\\) { $out = \\(uv run dq $c.Split\\(\" \"\\) 2>&1 | Select-Object -First 2\\) -join \" \"; \"{0,-24} {1}\" -f $c, $out.Substring\\(0, [Math]::Min\\(70, $out.Length\\)\\) })",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.local\\\\bin;$env:Path\"; uv run python scripts/scrub_settings.py; git add -A; uv run python scripts/check_staged_for_secrets.py; \"SCAN: $LASTEXITCODE\")"
     ],
     "deny": [
       "Read(./.env)",

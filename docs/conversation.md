@@ -922,3 +922,104 @@ uv run pytest                 # 134 pass
 uv run pytest -m volume       # 2 pass, ~110s
 uv run alembic upgrade head   # at 0008
 ```
+
+---
+
+## Session 6 — 2026-08-26 — `/speckit-implement`, Phase 4 (T053–T058)
+
+**Result: all 8 tasks complete. 70 of 83 overall.** 178 tests pass, mypy strict clean across 66
+files, ruff clean. Migrations at `0009`.
+
+All four user stories now have their acceptance criteria verified. Only US4 (query and summary) and
+Polish remain.
+
+### T056–T058 were already built
+
+Registration versioning, `set_active`, and the CLI commands all landed in Phase 3 as a side effect
+of needing them. Phase 4 was almost entirely the tests that pin the behaviour down — which is the
+right shape for a governance story: the code is small, and the value is in stating precisely what
+must not change.
+
+Verified the CLI wiring separately (`dq rules register/deactivate/activate`, `run-rules`, `seed` all
+resolve and print usage), because the click layer had never been executed end to end.
+
+### T055b needed a capability nobody had built
+
+Retiring a feed is end-dating its `active` range — an UPDATE — and `dq_author` held INSERT and
+SELECT only. FR-021c described the *shape* of retirement without anything ever performing it, so the
+gap sat unnoticed. Same failure mode as Phase 5's missing replay verb: **an absent operation is
+invisible in a schema.**
+
+Migration `0009` grants `UPDATE (active)` — column-scoped, matching how `dq_author` already holds
+`UPDATE (is_active) ON rule`. Both say the same thing: the role that authors a declaration may
+withdraw it, and may not rewrite what it said. A table-level grant would let cadence or delivery
+window be edited under findings already judged against them, which is the mutable-rule-version
+mistake wearing different clothes. DELETE is deliberately not granted — a retired expectation stays
+readable so an old finding can still be explained.
+
+Added `registry.retire_feed_expectation`, which moves the upper bound and leaves the lower alone.
+
+### SC-007's no-diff guard — what it actually asserts
+
+The task called for "a guard asserting no file under `src/dq/engine/` was modified". A checksum was
+the obvious reading and a bad one: it fails on every legitimate refactor, so it gets updated
+reflexively until it means nothing.
+
+Instead the guard reads the engine's source and asserts **what must not appear**:
+
+- no rule key from the shipped library, nor the key this test invents
+- no commercial table name (`hcp`, `hco`, `product`, `territory_alignment`, `sales_transaction`)
+
+`data_batch` and `source_system` are excluded — scope resolution legitimately reads both.
+
+This survives refactoring and still catches the thing worth catching: if someone made a new rule
+work by adding an engine branch, the rule's key or its table would be in that source. The
+demonstration half (register a family absent from the library, get findings) is weak on its own;
+the guard is what makes it evidence.
+
+### Test isolation, fixed before it bit
+
+Three of the new files register rules that are not part of the nine. Left active, they would add
+findings to any later full run and break SC-001's set equality in `test_golden_findings.py`.
+
+Today that file happens to run first alphabetically — so the golden test's correctness would have
+depended on a filename. Each fixture now deactivates its rule on teardown, and the feed-retirement
+fixture reopens the range it end-dated. Deactivating rather than deleting, because `rule_version`
+and `finding` are immutable by trigger: those rows cannot be removed and should not be.
+
+### What the deactivation tests pin down
+
+Two of these are worth naming, because both are behaviours someone would plausibly implement the
+other way:
+
+- **`--rule` does not override deactivation.** Otherwise "switched off" means "switched off unless
+  asked", and a retired rule quietly resumes from a scheduled job that names it explicitly.
+- **`is_active` does not create a version.** Pausing a noisy rule for an afternoon must not append
+  a row; a version records changed *meaning*, and switching a rule off changes none.
+
+### Known limitations, carried forward
+
+1. **Rule 6 and rule 7 remain lexical approximations** (see Sessions 4 and 5).
+2. **A replay uses whichever rule versions are active now**, not those active at the original run.
+3. **`SUPABASE_DB_STATEFUL_URL` and `TEST_DATABASE_URL` still contain `[YOUR-PASSWORD]` placeholder
+   text** alongside their real values. Works today because `as_psycopg_url` substitutes from
+   `SUPABASE_DB_PASSWORD`, but the variables are not self-contained — anything reading them directly
+   gets a broken string.
+4. **`SUPABASE_DB_POOLED_URL` is a bare hostname, not a URL.** Unused; fails when first read.
+5. **Principle VII still unenforced**, as designed.
+
+### Next
+
+Phase 6 (US4, T065–T070) — `query_findings` with all five filters, and `summarise_scope` with the
+aggregate-inclusion rule that `/speckit-analyze` flagged as C1: a never-arrived feed must appear in
+the summary for its source and period, not only in a findings query. Counts are per rule, not per
+rule version, so a threshold change does not double-count.
+
+Then Phase 7 (T071–T076), which ends with the post-implementation constitution check — the one that
+must report principle VII as deferred rather than letting it drift into a claimed PASS.
+
+```powershell
+uv run pytest                 # 178 pass
+uv run pytest -m volume       # 2 pass, ~110s
+uv run alembic upgrade head   # at 0009
+```

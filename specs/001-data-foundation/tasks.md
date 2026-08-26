@@ -147,17 +147,17 @@ was true when they were produced.
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T053 [P] [US2] Unit test in `tests/unit/test_version_semantics.py` classifying which field changes create a version and which do not
-- [ ] T054 [P] [US2] Integration test in `tests/integration/test_rule_versioning.py` — a threshold change creates version 2, version 1's findings remain interpretable (SC-005)
-- [ ] T055 [P] [US2] Integration test in `tests/integration/test_rule_deactivation.py` — a deactivated rule produces no new findings and loses none historically (SC-006)
-- [ ] T055a [P] [US2] Integration test in `tests/integration/test_rule_extensibility.py`: register a rule family absent from the library, run it, assert findings are produced — with a guard asserting no file under `src/dq/engine/` was modified (SC-007). The no-diff guard is the part that matters; without it the test passes even if someone adds an engine branch to make the rule work
-- [ ] T055b [P] [US2] Integration test in `tests/integration/test_feed_expectation_retirement.py` asserting an end-dated feed expectation stops producing missing-feed findings for periods after its end date, while retaining those raised before it (FR-021c)
+- [X] T053 [P] [US2] Unit test in `tests/unit/test_version_semantics.py` classifying which field changes create a version and which do not
+- [X] T054 [P] [US2] Integration test in `tests/integration/test_rule_versioning.py` — a threshold change creates version 2, version 1's findings remain interpretable (SC-005)
+- [X] T055 [P] [US2] Integration test in `tests/integration/test_rule_deactivation.py` — a deactivated rule produces no new findings and loses none historically (SC-006)
+- [X] T055a [P] [US2] Integration test in `tests/integration/test_rule_extensibility.py`: register a rule family absent from the library, run it, assert findings are produced — with a guard asserting no file under `src/dq/engine/` was modified (SC-007). The no-diff guard is the part that matters; without it the test passes even if someone adds an engine branch to make the rule work
+- [X] T055b [P] [US2] Integration test in `tests/integration/test_feed_expectation_retirement.py` asserting an end-dated feed expectation stops producing missing-feed findings for periods after its end date, while retaining those raised before it (FR-021c)
 
 ### Implementation
 
-- [ ] T056 [US2] Implement versioning semantics in `src/dq/rules/registry.py`: a change to `predicate_sql`, `parameters`, `severity`, or `subject_type` appends a version; a change to `owning_function` or `is_active` does not
-- [ ] T057 [US2] Implement activate and deactivate in `src/dq/rules/registry.py`, updating only `rule.is_active`
-- [ ] T058 [US2] Implement `dq rules register` and `dq rules deactivate` in `src/dq/cli.py`, connecting as `dq_author`
+- [X] T056 [US2] Implement versioning semantics in `src/dq/rules/registry.py`: a change to `predicate_sql`, `parameters`, `severity`, or `subject_type` appends a version; a change to `owning_function` or `is_active` does not
+- [X] T057 [US2] Implement activate and deactivate in `src/dq/rules/registry.py`, updating only `rule.is_active`
+- [X] T058 [US2] Implement `dq rules register` and `dq rules deactivate` in `src/dq/cli.py`, connecting as `dq_author`
 
 **Checkpoint**: US1 and US2 both work independently.
 

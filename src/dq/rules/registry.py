@@ -13,6 +13,7 @@ not a control.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from sqlalchemy import Connection, text
@@ -199,6 +200,31 @@ def active_versions(
         )
         for r in rows
     ]
+
+
+def retire_feed_expectation(conn: Connection, source_system_id: int, end_date: date) -> bool:
+    """End-date a feed expectation so later periods stop producing missing-feed findings (FR-021c).
+
+    Retirement is an end-date, not a delete. Findings already raised against this expectation stay
+    explicable — the declaration that produced them is still readable, with a range showing exactly
+    when it stopped applying. Deleting the row would leave those findings citing a rule about a feed
+    nobody can look up.
+
+    The range keeps its original lower bound; only the upper bound moves. ``dq_author`` holds
+    ``UPDATE (active)`` and nothing more (migration 0009), so the cadence and delivery window that
+    historical findings were judged against cannot be rewritten underneath them.
+
+    Returns False if no expectation exists for that source.
+    """
+    result = conn.execute(
+        text(
+            "UPDATE feed_expectation "
+            "SET active = daterange(lower(active), :end_date, '[)') "
+            "WHERE source_system_id = :sid"
+        ),
+        {"end_date": end_date, "sid": source_system_id},
+    )
+    return result.rowcount > 0
 
 
 def set_active(conn: Connection, rule_key: str, active: bool) -> bool:
