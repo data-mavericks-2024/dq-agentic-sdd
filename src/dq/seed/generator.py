@@ -372,6 +372,121 @@ def _seed_feed_expectations(settings: Settings, source_ids: dict[str, int]) -> N
 
 
 # ---------------------------------------------------------------------------
+# T063 — a later delivery that changes the past
+# ---------------------------------------------------------------------------
+
+#: The period the amendment batch arrives *for*. Later than every seeded period, so it cannot be
+#: confused with a re-delivery of the target period.
+AMENDMENT_PERIOD: tuple[date, date] = (date(2026, 10, 1), date(2026, 11, 1))
+
+#: The natural key of the orphan the amendment resolves. Matches the transaction injected by
+#: `defects._inject_orphan_references`.
+AMENDED_ORPHAN_KEY = "HCP-GHOST-0001"
+
+
+@dataclass(frozen=True, slots=True)
+class Amendment:
+    """What the later batch changed, so a test can assert against it without re-querying."""
+
+    batch_id: int
+    #: Watermark before the amendment landed — the world a historical run should still see.
+    watermark_before: int
+    #: The natural key whose master record now exists, back-dated into the target period.
+    orphan_key: str
+    #: The product whose unit of measure changed, also back-dated.
+    product_key: str
+    new_uom: str
+
+
+def amend_master(settings: Settings, result: SeedResult) -> Amendment:
+    """Deliver a later batch carrying **back-dated** master versions (T063).
+
+    Back-dated is the whole point. A version delivered later but stamped ``valid_from`` inside an
+    earlier period is the case that separates the two pinning parameters: ``as_of_date`` alone would
+    admit it, because its business date falls inside the historical window. Only
+    ``reference_watermark`` — which pins *which batches had arrived* — keeps it out of a historical
+    re-run.
+
+    Two amendments, chosen because they move the finding set in opposite directions:
+
+    * The master record for the orphaned HCP key now exists, so ``SALES-ORPHAN-REF`` would stop
+      firing for that transaction. A finding **disappears**.
+    * A product's unit of measure changes, so ``SALES-UOM-MISMATCH`` sees a different expected
+      value — and transactions that agreed with the old UoM now disagree. Findings **appear**.
+
+    A design that only pinned the business date would show both changes in a historical re-run and
+    call it correct. That is exactly the defect the watermark exists to prevent (research.md D3).
+    """
+    target = result.batch(TARGET_SOURCE, TARGET_PERIOD[0])
+    source_id = target.source_system_id
+    # Back-dated into the target period, not into the amendment period.
+    back_dated = TARGET_PERIOD[0]
+
+    # The UoM the amended product moves *to*. Chosen to differ from what product 0 shipped with,
+    # so the change is guaranteed to be a change.
+    original_uom = _product_uom(0)
+    new_uom = "ML" if original_uom != "ML" else "MG"
+
+    with db.connect(settings, Role.INGEST) as conn:
+        db.pin_session(conn, settings.schema_prefix)
+
+        watermark_before = int(
+            conn.execute(text("SELECT coalesce(max(batch_id), 0) FROM data_batch")).scalar_one()
+        )
+
+        batch_id = _insert_batch(
+            conn,
+            source_id,
+            AMENDMENT_PERIOD,
+            datetime(2026, 11, 3, 4, 0, tzinfo=UTC),
+            count=2,
+        )
+
+        # 1. The orphan resolves — retroactively.
+        conn.execute(
+            _INSERT_HCP,
+            [
+                {
+                    "sid": source_id,
+                    "key": AMENDED_ORPHAN_KEY,
+                    "vf": back_dated,
+                    "bid": batch_id,
+                    "npi": "9999999002",
+                    "first": "Retroactive",
+                    "last": "Retroactive",
+                    "postal": "79999",
+                    "state": "WA",
+                    "hco": None,
+                }
+            ],
+        )
+
+        # 2. A product's unit of measure changes — also retroactively.
+        conn.execute(
+            _INSERT_PRODUCT,
+            [
+                {
+                    "sid": source_id,
+                    "key": _product_key(source_id, 0),
+                    # One day later than the original version, so as-of resolution prefers it.
+                    "vf": back_dated + timedelta(days=1),
+                    "bid": batch_id,
+                    "name": f"Product {source_id}-0",
+                    "uom": new_uom,
+                }
+            ],
+        )
+
+    return Amendment(
+        batch_id=batch_id,
+        watermark_before=watermark_before,
+        orphan_key=AMENDED_ORPHAN_KEY,
+        product_key=_product_key(source_id, 0),
+        new_uom=new_uom,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

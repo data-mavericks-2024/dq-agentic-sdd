@@ -470,6 +470,32 @@ def _rule_7_as_of_binding(n: Normalised) -> None:
                 f"test, while silently breaking every historical re-run.",
             )
 
+    # Both parameters are present. That is not the same as both being *applied*: a predicate can
+    # mention `:reference_watermark` in an unrelated clause and still join master data unbounded,
+    # which is precisely the R2 risk the earlier check only half-covered. Require each parameter to
+    # be compared against the versioning column it exists to constrain.
+    for column, param, why in (
+        (
+            "valid_from",
+            ":as_of_date",
+            "which master version was in effect on the business date",
+        ),
+        (
+            "batch_id",
+            ":reference_watermark",
+            "which deliveries had arrived when the run was made",
+        ),
+    ):
+        if not re.search(rf"\b{column}\s*<=\s*{re.escape(param)}\b", n.lowered):
+            _fail(
+                "Rule 7 (as-of binding)",
+                f"predicate references master table {referenced[0]!r} and mentions {param}, but "
+                f"never compares it against {column}. Binding a parameter without applying it to "
+                f"the column it constrains leaves the join unbounded — the master reference is "
+                f"still resolved against every version, and {why} is not pinned at all. Use the "
+                f"as-of idiom in contracts/rule-definition.md.",
+            )
+
 
 def _rule_8b_no_postfix_cast_on_a_parameter(predicate_sql: str) -> None:
     """Reject ``:name::type``. Use ``CAST(:name AS type)``.

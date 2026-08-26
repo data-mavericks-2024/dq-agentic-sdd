@@ -99,6 +99,44 @@ from pinning the world, not from the constraint.
 that FR-016a/b exist to detect). Snapshotting master data per run into a temp table (works, but
 copies 100K+ rows per run for no benefit over a watermark filter).
 
+### Recording the world is necessary but not sufficient — replay is the missing half
+
+Verified 2026-08-26 by building T060, which could not be written as specified without an addition
+nobody had noticed was needed.
+
+Recording `as_of_date` and `reference_watermark` makes two runs *comparable*. It does not make the
+second one reproduce the first. A re-run recomputes its own watermark, so once a later batch has
+landed it evaluates a different delivered world — correctly, and with no way to ask for the old one
+back. Every artifact said "any historical run can be reproduced"; nothing said *how*.
+
+`run_rules(..., replay_of=<rule_run_id>)` closes it, reusing a recorded run's two parameters instead
+of computing fresh ones. Exposed as `dq run-rules --replay-of`. The replay is recorded as its own
+`rule_run` — an audit row is never overwritten — carrying identical pinned values, which is what
+makes "same findings" checkable rather than coincidental.
+
+**Why the gap survived design review.** Both parameters were correctly identified, correctly stored,
+and correctly bound into predicates. The missing piece was not a value but a verb, and reading the
+schema does not reveal an absent operation. It surfaced the moment a test tried to *perform* the
+guarantee rather than describe it.
+
+### What T060 actually demonstrates
+
+The test injects a **back-dated** master version: delivered in a later batch, stamped `valid_from`
+inside the historical period. That shape is what separates the two parameters, and the test asserts
+each half independently:
+
+| Bound | Historical re-run sees the amendment? |
+|---|---|
+| `as_of_date` only | **Yes** — its business date falls inside the window |
+| `as_of_date` + `reference_watermark` | No |
+
+A design pinning only the business date would call the amended world a faithful reproduction. The
+watermark is the only thing that excludes it, and the test fails loudly if it ever stops doing so.
+
+The third assertion is the one that keeps the other two honest: the same predicate under a *fresh*
+watermark must return something **different**. Without it, a test that pinned nothing would pass
+identically and the whole mechanism would be unfalsifiable.
+
 ---
 
 ## D4 — Findings whose subject is not a record

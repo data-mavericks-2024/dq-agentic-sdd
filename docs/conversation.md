@@ -809,3 +809,116 @@ uv run pytest                 # 119 pass
 uv run pytest -m volume       # 2 pass, ~110s
 uv run alembic upgrade head   # at 0007
 ```
+
+---
+
+## Session 5 — 2026-08-26 — `/speckit-implement`, Phase 5 (T059–T064)
+
+US3 taken ahead of US2, on the argument that the reproducibility guarantee was the one thing built,
+argued for at length, and never demonstrated.
+
+**Result: all 6 tasks complete. 62 of 83 overall.** 134 tests pass, mypy strict clean across 59
+files, ruff clean. Migrations at `0008`.
+
+**SC-010 holds: a historical re-run after later master data arrives produces an identical finding
+set.** The test that revision 1's design would have failed now passes, and fails loudly if the
+machinery is removed.
+
+### The gap T060 exposed
+
+**Recording the world is necessary but not sufficient. Replay was the missing half.**
+
+`as_of_date` and `reference_watermark` were correctly identified, stored, and bound into every
+predicate. But a re-run *recomputes* its watermark, so once a later batch lands it evaluates a
+different delivered world — correctly, and with no way to ask for the old one back. Every artifact
+said "any historical run can be reproduced". Nothing said how.
+
+Added `run_rules(..., replay_of=<rule_run_id>)`, exposed as `dq run-rules --replay-of`. The replay
+is recorded as its own `rule_run` — audit rows are never overwritten — carrying identical pinned
+values, which is what makes "same findings" checkable rather than coincidental.
+
+Worth noting why this survived design review: the missing piece was not a value but a **verb**, and
+reading a schema does not reveal an absent operation. It surfaced the moment a test tried to
+*perform* the guarantee instead of describing it.
+
+### What T060 actually proves
+
+The amendment is a **back-dated** master version — delivered in a later batch, stamped `valid_from`
+inside the historical period. That shape is what separates the two parameters:
+
+| Bound | Historical re-run sees the amendment? |
+|---|---|
+| `as_of_date` only | **Yes** — its business date is inside the window |
+| `as_of_date` + `reference_watermark` | No |
+
+A design pinning only the business date would call the amended world a faithful reproduction. The
+watermark is the only thing excluding it.
+
+The third assertion keeps the other two honest: the same predicate under a *fresh* watermark must
+return something **different**. Without it, a test that pinned nothing would pass identically and
+the mechanism would be unfalsifiable.
+
+Two amendments, moving the finding set in opposite directions — an orphaned HCP key resolves (a
+finding **disappears**) and a product's UoM changes (findings **appear**).
+
+### T064 — rule 7 now requires the parameters to be *applied*
+
+The previous check asked whether `:as_of_date` and `:reference_watermark` appeared anywhere. A rule
+could satisfy that by mentioning one in an unrelated clause while still joining master data
+unbounded — research.md R2 almost exactly. Each parameter must now be compared against the column it
+constrains: `valid_from <= :as_of_date`, `batch_id <= :reference_watermark`. Both sides, migration
+`0008`. All nine shipped rules already complied.
+
+Still lexical, still weaker than a parse-tree proof — it cannot tell the comparison sits inside the
+*same* join as the master reference. It closes the gap that mattered: a parameter bound and ignored.
+
+### T059, T061, T062
+
+**T059 (idempotence)** asserts rows, not just counts — same finding ids and `detected_at` after a
+re-run, so a row silently replaced by another would fail. Also asserts runs are *not* idempotent:
+each execution gets its own `rule_run` and correlation id, because the trail has to answer "when was
+this last checked?" as well as "what was found".
+
+**T061 (crash resume)** tests a property nothing implements. There is no resume log and no
+checkpoint — re-running *is* the recovery, because the uniqueness constraint makes a second run
+converge regardless of how far the first got. It follows from two decisions made elsewhere, and a
+change to either would break it with no failing code path to notice.
+
+**T062 (determinism)** compares predicate output under two genuinely different query plans
+(`max_parallel_workers_per_gather` 0 vs 4, `enable_indexscan` on vs off), never persisted findings.
+Comparing findings could not fail: `ON CONFLICT DO NOTHING` discards the second run's differing row,
+so the persisted set is identical by construction rather than by determinism.
+
+### One failure worth recording
+
+`DATE :param` is literal-prefix syntax and cannot take a bind parameter — `SELECT (DATE $1 - 1)` is
+a syntax error. Worse, it poisoned the session-scoped read connection, so four tests failed with
+`InFailedSqlTransaction` and the real error was three screens up. The round trip was pointless
+anyway; Python subtracts a day locally.
+
+### Known limitations, carried forward
+
+1. **Rule 7 remains lexical** (above).
+2. **Rule 6 remains an approximation** — final `ORDER BY` term names a known-unique column, not a
+   proof of totality.
+3. **A replay uses whichever rule versions are active now**, not those active at the original run.
+   That is deliberate — re-running a *scope* under current rules is the common case — but "replay
+   the run exactly as it was, including its rule versions" is a different operation and does not
+   exist yet. Feature 6's audit view will want it.
+4. **`SUPABASE_DB_POOLED_URL` still malformed** in `.env`. Unused; will fail when first read.
+5. **Principle VII still unenforced**, as designed.
+
+### Next
+
+Phase 4 (US2, T053–T058) — rule governance: versioning semantics, deactivation, and the SC-007
+extensibility test with its no-diff guard. Then US4 (T065–T070) and Polish (T071–T076).
+
+US2 is now the only story with no implementation behind it: `registry.register` already versions,
+and `set_active` already deactivates, so Phase 4 is largely writing the tests that pin those
+behaviours down.
+
+```powershell
+uv run pytest                 # 134 pass
+uv run pytest -m volume       # 2 pass, ~110s
+uv run alembic upgrade head   # at 0008
+```

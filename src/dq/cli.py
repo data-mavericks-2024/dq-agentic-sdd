@@ -136,13 +136,27 @@ def rules_activate(rule_key: str) -> None:
 @click.option("--source", help="Source system code, with --period.")
 @click.option("--period", help="Business period as YYYY-MM, with --source.")
 @click.option("--rule", "rule_keys", multiple=True, help="Restrict to these rule keys.")
+@click.option(
+    "--replay-of",
+    type=int,
+    metavar="RUN_ID",
+    help="Reuse an earlier run's as-of date and watermark instead of computing fresh ones.",
+)
 def run_rules_cmd(
-    batch_id: int | None, source: str | None, period: str | None, rule_keys: tuple[str, ...]
+    batch_id: int | None,
+    source: str | None,
+    period: str | None,
+    rule_keys: tuple[str, ...],
+    replay_of: int | None,
 ) -> None:
     """Evaluate active rules against a scope.
 
     A scope is either a batch or a (source, period) pair. The second form is what lets the engine
     answer "did the September feed arrive?" — a question with no batch to ask it against.
+
+    `--replay-of` reproduces a historical run. Without it a re-run recomputes its watermark and so
+    evaluates whatever has been delivered since — correct, but a different world. Replay is what
+    makes "why did this number change?" answerable months later.
     """
     if batch_id is not None and (source or period):
         raise click.UsageError("--batch-id and --source/--period are alternatives")
@@ -160,11 +174,13 @@ def run_rules_cmd(
 
     settings = _settings()
     try:
-        result = run_rules(settings, scope, rule_keys=list(rule_keys) or None)
+        result = run_rules(settings, scope, rule_keys=list(rule_keys) or None, replay_of=replay_of)
     except ScopeNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"run              : {result.rule_run_id}  ({result.correlation_id})")
+    if replay_of is not None:
+        click.echo(f"replay of        : {replay_of}")
     click.echo(f"scope            : {result.scope_key}")
     click.echo(f"as-of / watermark: {result.as_of_date}  /  batch {result.reference_watermark}")
     click.echo(f"status           : {result.status}")

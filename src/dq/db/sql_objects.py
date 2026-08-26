@@ -272,6 +272,27 @@ BEGIN
                     'contracts/rule-definition.md.', tbl
                     USING ERRCODE = 'check_violation';
             END IF;
+
+            -- Present is not the same as applied. A predicate can mention
+            -- :reference_watermark in an unrelated clause and still join master
+            -- data unbounded -- the R2 risk the presence check only half-covers.
+            -- Each parameter must be compared against the versioning column it
+            -- exists to constrain.
+            IF stripped !~ '\\yvalid_from\\s*<=\\s*:as_of_date\\y' THEN
+                RAISE EXCEPTION
+                    'Rule 7: predicate references master table % and mentions :as_of_date, but '
+                    'never compares it against valid_from. Binding a parameter without applying '
+                    'it leaves the join unbounded.', tbl
+                    USING ERRCODE = 'check_violation';
+            END IF;
+
+            IF stripped !~ '\\ybatch_id\\s*<=\\s*:reference_watermark\\y' THEN
+                RAISE EXCEPTION
+                    'Rule 7: predicate references master table % and mentions '
+                    ':reference_watermark, but never compares it against batch_id. The master '
+                    'reference is still resolved against every delivery.', tbl
+                    USING ERRCODE = 'check_violation';
+            END IF;
             EXIT;
         END IF;
     END LOOP;

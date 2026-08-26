@@ -151,9 +151,41 @@ def _watermark(conn: Connection) -> int:
     return int(conn.execute(text("SELECT coalesce(max(batch_id), 0) FROM data_batch")).scalar_one())
 
 
-def resolve_scope(conn: Connection, scope: RunScope) -> ResolvedScope:
-    """Bind ``scope`` to a concrete as-of date and watermark."""
-    watermark = _watermark(conn)
+@dataclass(frozen=True, slots=True)
+class PinnedWorld:
+    """The reference world of an earlier run, replayed instead of recomputed.
+
+    A re-run that recomputes its own watermark sees whatever has been delivered since, so after a
+    later batch arrives it is evaluating a *different world* — correctly, but not reproducibly.
+    Reproducing a historical run means replaying the parameters it recorded, which is what makes
+    "any historical run can be reproduced" an operation rather than an aspiration (SC-010).
+    """
+
+    as_of_date: date
+    reference_watermark: int
+
+
+def load_pinned_world(conn: Connection, rule_run_id: int) -> PinnedWorld:
+    """Read the reference world a previous run recorded."""
+    row = conn.execute(
+        text("SELECT as_of_date, reference_watermark FROM rule_run WHERE rule_run_id = :id"),
+        {"id": rule_run_id},
+    ).one_or_none()
+    if row is None:
+        raise ScopeNotFoundError(f"No rule_run with rule_run_id={rule_run_id}.")
+    return PinnedWorld(as_of_date=row.as_of_date, reference_watermark=row.reference_watermark)
+
+
+def resolve_scope(
+    conn: Connection, scope: RunScope, pinned: PinnedWorld | None = None
+) -> ResolvedScope:
+    """Bind ``scope`` to a concrete as-of date and watermark.
+
+    ``pinned`` replaces both with an earlier run's recorded values. The scope still resolves
+    normally — a replay evaluates the same subjects, in the same world, under whichever rule
+    versions are active now.
+    """
+    watermark = pinned.reference_watermark if pinned else _watermark(conn)
 
     if isinstance(scope, BatchScope):
         # `lower`/`upper` rather than the range itself: a range object crossing the Python boundary
@@ -172,7 +204,7 @@ def resolve_scope(conn: Connection, scope: RunScope) -> ResolvedScope:
         return ResolvedScope(
             scope_type="batch",
             scope_key=f"b:{row.batch_id}",
-            as_of_date=_business_end(row.period_end),
+            as_of_date=pinned.as_of_date if pinned else _business_end(row.period_end),
             reference_watermark=watermark,
             batch_id=row.batch_id,
             source_system_id=row.source_system_id,
@@ -190,7 +222,7 @@ def resolve_scope(conn: Connection, scope: RunScope) -> ResolvedScope:
     return ResolvedScope(
         scope_type="source_period",
         scope_key=f"sp:{scope.source_system_code}:{scope.period_start:%Y-%m}",
-        as_of_date=_business_end(scope.period_end),
+        as_of_date=pinned.as_of_date if pinned else _business_end(scope.period_end),
         reference_watermark=watermark,
         batch_id=None,
         source_system_id=source_id,
@@ -352,13 +384,23 @@ def _close_run(conn: Connection, run_id: int, status: str, detail: str | None = 
 
 
 def run_rules(
-    settings: Settings, scope: RunScope, *, rule_keys: list[str] | None = None
+    settings: Settings,
+    scope: RunScope,
+    *,
+    rule_keys: list[str] | None = None,
+    replay_of: int | None = None,
 ) -> RuleRunResult:
     """Evaluate every active rule version against ``scope``.
 
     The run is opened, evaluated, and closed in **separate transactions** so that a catastrophic
     failure still leaves a ``rule_run`` row explaining itself. A run recorded only on success is a
     run that cannot report its own failure.
+
+    ``replay_of`` reuses an earlier run's ``as_of_date`` and ``reference_watermark`` instead of
+    computing fresh ones. Without it a re-run cannot reproduce anything: it recomputes the watermark
+    and therefore sees whatever has been delivered since — correct behaviour, but a different world.
+    Replay is what turns "any historical run can be reproduced" (SC-010) from a property of the
+    schema into an operation someone can actually perform.
     """
     session_settings = db.session_settings_for(settings.schema_prefix)
 
@@ -370,7 +412,8 @@ def run_rules(
         # table name in it fails to resolve.
         with conn.begin():
             db.pin_session(conn, settings.schema_prefix)
-            resolved = resolve_scope(conn, scope)
+            pinned = load_pinned_world(conn, replay_of) if replay_of is not None else None
+            resolved = resolve_scope(conn, scope, pinned)
 
         with conn.begin():
             db.pin_session(conn, settings.schema_prefix)

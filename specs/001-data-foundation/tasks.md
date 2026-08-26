@@ -173,15 +173,15 @@ original period, and assert set equality (SC-010).
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T059 [P] [US3] Integration test in `tests/integration/test_idempotent_rerun.py` — re-running a scope creates no duplicate findings (SC-003)
-- [ ] T060 [P] [US3] Integration test in `tests/integration/test_reproducibility.py` — a historical re-run after a later master-data delivery produces an identical finding set (SC-010). **This is the test revision 1's design would have failed**
-- [ ] T061 [P] [US3] Integration test in `tests/integration/test_crash_resume.py` — a run interrupted mid-flight and re-executed yields the same finding set as an uninterrupted run
-- [ ] T062 [P] [US3] Determinism test in `tests/integration/test_predicate_determinism.py` comparing **predicate output rows**, not persisted findings, across executions with `max_parallel_workers_per_gather` at 0 and 4 and `enable_indexscan` on and off
+- [X] T059 [P] [US3] Integration test in `tests/integration/test_idempotent_rerun.py` — re-running a scope creates no duplicate findings (SC-003)
+- [X] T060 [P] [US3] Integration test in `tests/integration/test_reproducibility.py` — a historical re-run after a later master-data delivery produces an identical finding set (SC-010). **This is the test revision 1's design would have failed**
+- [X] T061 [P] [US3] Integration test in `tests/integration/test_crash_resume.py` — a run interrupted mid-flight and re-executed yields the same finding set as an uninterrupted run
+- [X] T062 [P] [US3] Determinism test in `tests/integration/test_predicate_determinism.py` comparing **predicate output rows**, not persisted findings, across executions with `max_parallel_workers_per_gather` at 0 and 4 and `enable_indexscan` on and off
 
 ### Implementation
 
-- [ ] T063 [US3] Add `--amend-master` to `src/dq/seed/generator.py`, delivering a later batch that changes an existing master record so T060 has something to prove
-- [ ] T064 [US3] Extend the T025 trigger and `src/dq/rules/predicates.py` to **reject any predicate referencing a master table without binding both `:as_of_date` and `:reference_watermark`** (research.md R2) — a predicate omitting the watermark returns plausible results and still passes T062, so only a structural check catches it
+- [X] T063 [US3] Add `--amend-master` to `src/dq/seed/generator.py`, delivering a later batch that changes an existing master record so T060 has something to prove
+- [X] T064 [US3] Extend the T025 trigger and `src/dq/rules/predicates.py` to **reject any predicate referencing a master table without binding both `:as_of_date` and `:reference_watermark`** (research.md R2) — a predicate omitting the watermark returns plausible results and still passes T062, so only a structural check catches it
 
 **Checkpoint**: The reproducibility guarantee is verified rather than asserted.
 
