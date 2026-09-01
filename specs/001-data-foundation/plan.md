@@ -32,8 +32,12 @@ is IPv4-only and the direct endpoint is IPv6-only on free tier. Prepared stateme
 locks verified working on this endpoint.
 
 **Testing**: pytest. Integration tests run against the same Supabase project as development, isolated
-by a per-session schema prefix (`test_<uuid>_`), with a session-start sweep for orphaned schemas.
-`testcontainers` is unavailable — no Docker on the development machine.
+by a canonical per-session schema prefix (`test_<YYYYMMDDHHMMSS>_<uuid6>_`). Each session holds a
+dedicated session-pooler connection with a PostgreSQL advisory lock derived deterministically from
+its prefix. At session start, the orphan sweep skips a prefix whose lock is held and removes a stale
+prefixed schema only after acquiring its lock; a crashed test process releases its connection and
+therefore its lock without leaving persistent liveness state. `testcontainers` is unavailable — no
+Docker on the development machine.
 
 **Target Platform**: Linux/Windows server process; developed on Windows 11.
 
@@ -106,7 +110,7 @@ See [research.md](./research.md) § Constitution enforcement for the mechanism b
 | V | Full Auditability | `rule_version` and `finding` immutable by trigger; `correlation_id` on `rule_run`; `as_of_date` + `reference_watermark` + `session_settings` record the world each run saw | **Enforced structurally** |
 | VI | Least-Privilege | Seven `NOINHERIT` roles, explicit grant matrix, no cross-membership, conformance test pinning the role set to the constitution's list | **Enforced structurally** |
 | IX | Resumability — idempotence | `UNIQUE (rule_version_id, scope_key, subject_key)` + `ON CONFLICT DO NOTHING`, uniform across all three subject types | **Enforced structurally** |
-| IX | Resumability — reproducibility | `as_of_date` + `reference_watermark` pin the reference world and are recorded per run. Revision 1 claimed this followed from batch immutability alone, which was false: four rule families join unbounded master data | **Enforced structurally** |
+| IX | Resumability — reproducibility | `as_of_date` + `reference_watermark` + `session_settings` record the execution world, but full watermark enforcement and explicit replay of the exact recorded rule-version set remain pending in T080 and T081 | **OPEN — T080 and T081 required** |
 | X | Testability | Expected finding set derived from the generator rather than hand-declared; set-equality assertion; determinism test comparing **predicate output** under varied query plans, not persisted findings | **Enforced structurally** |
 | VII | PII/PHI | Synthetic data only; no prompt boundary exists. No masking mechanism exists because there is nothing to mask into | **Not enforced — deferred to Feature 3**, stated plainly rather than claimed |
 

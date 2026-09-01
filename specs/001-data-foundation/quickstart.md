@@ -68,20 +68,32 @@ happened; the finding set is untouched.
 This holds because of a database constraint, so it also holds for a run killed halfway. Verify by
 interrupting a run with Ctrl-C and re-running.
 
-## Scenario 3 — A historical re-run survives later deliveries (SC-010)
+## Scenario 3 — Explicit historical replay survives later deliveries (SC-010)
 
 **The scenario that distinguishes idempotency from reproducibility**, and the one revision 1 could
 not have passed.
 
 ```powershell
 uv run dq run-rules --batch-id 1
+$originalRunId = 1234                         # replace with the COMPLETED rule_run_id reported above
 uv run dq seed --periods 1 --amend-master     # a later batch changing master data
-uv run dq run-rules --batch-id 1              # re-run the ORIGINAL period
+uv run dq run-rules --replay-of $originalRunId
 uv run pytest tests/integration/test_reproducibility.py
 ```
 
-**Expected:** the finding set for batch 1 is unchanged, because the run resolves master data as of
-batch 1's period and filters to the reference watermark recorded on the original run.
+**Expected:** replay creates a new `rule_run` linked to the original, reuses the original scope,
+`as_of_date`, `reference_watermark`, complete session settings, and exact rule-version set, and
+evaluates the same finding identities and values without inserting duplicate finding rows.
+
+A normal scope invocation is a fresh evaluation, not replay:
+
+```powershell
+uv run dq run-rules --batch-id 1
+```
+
+It may observe the later delivery or currently applicable rule versions. Replay accepts only an
+original run with status `COMPLETED`; a running, failed, or completed-with-errors source is rejected,
+as is combining `--replay-of` with a scope or `--rule`.
 
 Without that pinning, the second run would see master data that did not exist when the first ran,
 and findings would appear in or vanish from a historical batch — while Scenario 2 still passed.
@@ -197,6 +209,12 @@ Integration tests share the Supabase project with development. Each session crea
 `test_<YYYYMMDDHHMMSS>_<uuid6>_commercial` and its four siblings, migrates into them, and drops them
 on teardown. Session start sweeps any `test_*` schema whose **embedded timestamp** is older than
 four hours — PostgreSQL records no schema creation time, so the timestamp has to be in the name.
+
+Each pytest session holds a dedicated session-pooler connection and a PostgreSQL session advisory
+lock derived deterministically from its canonical prefix. The sweep skips a prefix whose lock is
+held and drops a stale prefix only after acquiring its lock. If a test process terminates, closing
+the connection releases the lock automatically. No persistent public session registry is created
+or mutated.
 
 **Test sessions never create or drop roles.** Roles are cluster-global and cannot be schema-isolated;
 the bootstrap migration that creates them is skipped whenever a schema prefix is set. A test run that

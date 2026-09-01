@@ -98,26 +98,32 @@ still describe what was true when they were produced.
 
 ### User Story 3 - Any historical run can be reproduced (Priority: P3)
 
-A steward re-runs the rules for a data batch from three weeks ago and gets exactly the same findings
-as the original run produced — not similar findings, the same ones. Running the same rules over the
-same batch twice does not create duplicate findings.
+A steward explicitly replays a successfully completed rule run from three weeks ago and gets
+exactly the same findings as the original run produced — not similar findings, the same ones. A
+fresh evaluation of the same scope remains a separate operation that may see later data or rule
+versions, and neither operation creates duplicate persisted findings.
 
 **Why this priority**: This is what makes the system defensible under inspection. It is separable
 from P1 and P2 because detection and rule governance are valuable even before reproducibility is
 guaranteed, but nothing can be published to a regulator's satisfaction without it.
 
-**Independent Test**: Execute a rule run over a historical batch twice and confirm the finding set
-is identical and not duplicated.
+**Independent Test**: Complete a rule run, deliver later data, explicitly replay the completed run
+by its recorded identity, and confirm the evaluated finding set is identical and no persisted
+finding is duplicated. Separately confirm that a fresh evaluation can observe the later world.
 
 **Acceptance Scenarios**:
 
-1. **Given** a batch that has already been evaluated, **When** the same rules are re-run against it,
-   **Then** the resulting finding set is identical and no duplicate findings are created.
+1. **Given** a successfully completed rule run, **When** that run is explicitly replayed by its
+   recorded identity, **Then** its original scope, execution context, and exact rule versions are
+   reused, the evaluated finding set is identical, and no duplicate findings are persisted.
 2. **Given** a batch from an arbitrary past period, **When** a rule run is requested for it,
-   **Then** it executes against that batch's data as it exists, without requiring the batch to be
-   the most recent one.
+   **Then** a fresh evaluation executes against the currently visible world for that historical
+   scope without requiring the batch to be the most recent one.
 3. **Given** a rule run that fails partway through, **When** it is re-executed, **Then** the outcome
    is the same as if it had succeeded on the first attempt.
+4. **Given** a run that is running, failed, or completed with rule errors, **When** historical replay
+   is requested for it, **Then** the request is rejected because only successfully completed runs
+   are eligible replay sources.
 
 ---
 
@@ -347,10 +353,11 @@ independently and confirm counts reconcile against the per-batch summary.
   including a feed that has never arrived since being declared — demonstrating that absence is
   detected from the expectation catalogue rather than inferred from observed history. The missing
   feed is visible in the summary for that source and period, not only in a findings query.
-- **SC-010**: Re-evaluating a historical period after further data has been delivered produces the
-  same finding set as the original evaluation. This is verified by running the rules over a period,
-  delivering a later batch that changes master data, re-running the earlier period, and asserting
-  set equality.
+- **SC-010**: Explicitly replaying a successfully completed historical rule run by its recorded `rule_run_id`
+  after further data has been delivered reuses the original scope, `as_of_date`,
+  `reference_watermark`, session settings, and exact recorded rule-version set, and produces the
+  same finding set as the original evaluation. A normal run for the same source and period is a
+  distinct fresh evaluation and may use later deliveries, reference data, or rule versions.
 
 ## Assumptions
 

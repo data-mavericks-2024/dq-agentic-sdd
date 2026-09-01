@@ -345,6 +345,7 @@ timeliness-rule author would reach for, and it is STABLE rather than VOLATILE â€
 | Column | Type | Notes |
 |---|---|---|
 | `rule_run_id` | `bigint` PK | |
+| `replay_of_rule_run_id` | `bigint` FK NULL | self-reference to the original `COMPLETED` run; `ON DELETE RESTRICT` |
 | `correlation_id` | `uuid` NOT NULL | constitution principle V; Features 2+ join on this |
 | `scope_type` | `text` NOT NULL | `batch` / `source_period` |
 | `batch_id` | `bigint` FK NULL | set when `scope_type = 'batch'` |
@@ -358,9 +359,19 @@ timeliness-rule author would reach for, and it is STABLE rather than VOLATILE â€
 | `status` | `text` NOT NULL | `RUNNING`/`COMPLETED`/`COMPLETED_WITH_ERRORS`/`FAILED` |
 | `error_detail` | `text` NULL | |
 
-`as_of_date`, `reference_watermark`, and `session_settings` together record the world a run saw.
-Two runs sharing all three over immutable data must produce identical findings â€” that is the
-reproducibility guarantee, made checkable rather than asserted.
+`as_of_date`, `reference_watermark`, and `session_settings` together record the world a run saw. A
+fresh evaluation derives new values and currently applicable rule versions. A replay instead
+requires an original run with status `COMPLETED`, copies its scope and complete execution context,
+and executes exactly the `rule_version_id` set recorded for that run.
+
+`replay_of_rule_run_id` is null for fresh evaluations and points directly to the original completed
+run for replays. Runs are append-only and deletion is restricted. `RUNNING`, `FAILED`, and
+`COMPLETED_WITH_ERRORS` runs are not valid replay sources.
+
+Finding uniqueness remains `UNIQUE (rule_version_id, scope_key, subject_key)`, so replay does not
+duplicate persisted findings. Finding-set equality compares rule version, scope key, subject key,
+offending value, observed value, expected value, and severity. The replay attempt and each rule's
+outcome remain attributable through the new `rule_run` and `rule_run_rule_version` rows.
 
 `COMPLETED_WITH_ERRORS` is a distinct status because revision 1 closed a run as `COMPLETED` when a
 rule errored, making a partially-evaluated batch indistinguishable from a clean one in the

@@ -79,7 +79,7 @@ compute) before T052 rather than discovering it there.
 ### Test harness
 
 - [X] T027 Implement the test schema lifecycle in `tests/conftest.py`: create `test_<YYYYMMDDHHMMSS>_<uuid6>_*` schemas, apply migrations into them, drop on teardown
-- [X] T028 Implement the stale-schema sweep in `tests/conftest.py`, parsing the **timestamp embedded in the schema name** (PostgreSQL records no schema creation time) and skipping any prefix listed in the live-session registry
+- [X] T028 Implement the stale-schema sweep in `tests/conftest.py`, parsing the **timestamp embedded in the schema name** (PostgreSQL records no schema creation time) and skipping any prefix listed in the live-session registry; this completed implementation evidence is superseded by the migration-compliant advisory-lock design in T077
 - [X] T029 [P] Write the role conformance test in `tests/integration/test_role_conformance.py` asserting the `dq_*` roles present equal exactly the seven in constitution v1.1.0 — an eighth role must fail the build
 - [X] T030 [P] Write the role privilege test in `tests/integration/test_role_privileges.py`: as `dq_engine`, `INSERT`/`UPDATE`/`DELETE`/`CREATE TABLE` against `commercial` must each raise `InsufficientPrivilege`; as `dq_author`, `SELECT` on `commercial` must fail. **Each test must attempt the operation** — one that passes because nothing was attempted proves nothing
 
@@ -165,16 +165,19 @@ was true when they were produced.
 
 ## Phase 5: User Story 3 — Any historical run can be reproduced (Priority: P3)
 
-**Goal**: Re-running rules over a historical scope yields the same findings — not similar ones, the
-same ones — even after later data has arrived.
+**Goal**: Explicitly replaying a successfully completed historical run yields the same evaluated
+findings — not similar ones, the same ones — even after later data has arrived; a normal scoped run
+remains a distinct fresh evaluation.
 
-**Independent Test**: Run a period, deliver a later batch that changes master data, re-run the
-original period, and assert set equality (SC-010).
+**Independent Test**: Run a period to successful completion, deliver a later batch that changes
+master data, explicitly replay the original `rule_run_id`, and assert evaluated set equality without
+duplicate persisted findings; separately assert that a fresh evaluation sees the later world
+(SC-010).
 
 ### Tests for User Story 3 ⚠️
 
 - [X] T059 [P] [US3] Integration test in `tests/integration/test_idempotent_rerun.py` — re-running a scope creates no duplicate findings (SC-003)
-- [X] T060 [P] [US3] Integration test in `tests/integration/test_reproducibility.py` — a historical re-run after a later master-data delivery produces an identical finding set (SC-010). **This is the test revision 1's design would have failed**
+- [X] T060 [P] [US3] Integration test in `tests/integration/test_reproducibility.py` — a historical re-run after a later master-data delivery produces an identical finding set (SC-010). **This is the test revision 1's design would have failed; T081 supersedes its completion evidence with explicit replay-versus-fresh coverage.**
 - [X] T061 [P] [US3] Integration test in `tests/integration/test_crash_resume.py` — a run interrupted mid-flight and re-executed yields the same finding set as an uninterrupted run
 - [X] T062 [P] [US3] Determinism test in `tests/integration/test_predicate_determinism.py` comparing **predicate output rows**, not persisted findings, across executions with `max_parallel_workers_per_gather` at 0 and 4 and `enable_indexscan` on and off
 
@@ -197,14 +200,14 @@ confirm counts reconcile against the summary.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T065 [P] [US4] Integration test in `tests/integration/test_findings_query.py` covering each filter and their combinations (FR-023)
+- [ ] T065 [P] [US4] Integration test in `tests/integration/test_findings_query.py` covering each filter and their combinations (FR-023), and asserting every returned finding includes `finding_id`, subject identity, offending or observed value, expected value, `rule_key`, `rule_version_id`, `version_no`, domain, dimension, severity, `owning_function`, and `detected_at` so record findings are fully attributable without a separate lookup (US1/AC4, SC-002)
 - [ ] T066 [P] [US4] Integration test in `tests/integration/test_batch_summary.py` — counts reconcile exactly (SC-004), counts are **per rule not per rule version** after a version change, and errored rules appear as an explicit line
 - [ ] T066a [P] [US4] Integration test in `tests/integration/test_summary_aggregates.py` asserting a never-arrived feed appears in the summary for the affected source and period — not only in a findings query (FR-024a, SC-009)
 - [ ] T067 [P] [US4] Unit test for summary aggregation arithmetic in `tests/unit/test_summary_math.py`
 
 ### Implementation
 
-- [ ] T068 [US4] Implement `query_findings` in `src/dq/engine/summary.py` with all five filters, any combination, all-None returning everything
+- [ ] T068 [US4] Implement `query_findings` in `src/dq/engine/summary.py` with all five filters, any combination, and all-None returning everything; return a typed Pydantic finding response assembled through the `finding`, `rule_version`, and `rule` relationships so callers need no separate lookup for severity, ownership, rule identity, or rule-version attribution
 - [ ] T069 [US4] Implement `summarise_scope` in `src/dq/engine/summary.py` (with a `summarise_batch` wrapper): group by domain, by rule, and by severity; count distinct `subject_key` per `rule_id` so a threshold change does not double-count; include a rules-errored line; and **include `source_period` findings covering the scope's source and period** so a never-arrived feed is visible in the summary rather than only in a query (FR-024a)
 - [ ] T070 [US4] Implement `dq findings` and `dq summarise` in `src/dq/cli.py`
 
@@ -215,11 +218,11 @@ confirm counts reconcile against the summary.
 ## Phase 7: Polish & Cross-Cutting Concerns
 
 - [ ] T071 [P] Implement `dq admin sweep-test-schemas` in `src/dq/cli.py`
-- [ ] T072 [P] Write `README.md` covering setup, the three Supabase connection modes, and the seven roles
+- [ ] T072 [P] Extend and complete the `README.md` created by T089 with setup, the three Supabase connection modes, and the seven roles while preserving its verified rollback documentation
 - [ ] T073 Run every scenario in `specs/001-data-foundation/quickstart.md` end to end and record actual against expected
 - [ ] T074 `uv run ruff check . ; uv run ruff format . ; uv run mypy .` clean
 - [ ] T075 **Post-implementation constitution check**: for each of the eleven principles in v1.1.0, cite the passing test or database object that enforces it, or flag it unenforced. Principle VII must still be reported as deferred to Feature 3 — do not let it drift into a claimed PASS
-- [ ] T076 Record in `docs/conversation.md` what is stubbed, incomplete, or not working, and hand the four `DQ_*_URL` values that Feature 2 will need
+- [ ] T076 Record in `docs/conversation.md` what is stubbed, incomplete, or not working, plus only the environment-variable names and role capabilities that Feature 2 must evaluate; never record connection-string values, passwords, or contents of `.env` or `.env.bak`, and state explicitly that workflow and audit write-role grants remain unresolved Feature 2 planning decisions within the constitution's exhaustive seven-role model
 
 ---
 
@@ -232,8 +235,11 @@ confirm counts reconcile against the summary.
 - **US1 (Phase 3)**: depends on Foundational
 - **US2 (Phase 4)**: depends on Foundational; T056 extends T036 from US1
 - **US3 (Phase 5)**: depends on US1 (needs a working runner to re-run)
-- **US4 (Phase 6)**: depends on US1 (needs findings to query)
-- **Polish (Phase 7)**: depends on all desired stories
+- **Convergence (Phase 8)**: depends on Phase 5 and is a mandatory remediation gate; despite its
+  append-only location, it MUST complete before Phase 6 or Phase 7, and implementation resumes at
+  T077 rather than T065
+- **US4 (Phase 6)**: depends on US1 and the Phase 8 convergence gate (needs remediated findings to query)
+- **Polish (Phase 7)**: depends on all desired stories and the Phase 8 convergence gate
 
 ### Critical path notes
 
@@ -249,6 +255,22 @@ confirm counts reconcile against the summary.
   without a declared feed to be missing.
 - **T064 is in US3 but guards US1's rules.** Consider pulling it forward if rule authoring starts
   before Phase 5 — a predicate written without the watermark will pass every US1 test.
+- **T077 before any additional integration tests.** Test-session liveness and orphan cleanup must be
+  trustworthy before more hosted-database tests run.
+- **T085 before T079.** The fresh-head normalized-index assertions must fail before the composite
+  normalization migration is implemented; within T079, write the upgrade-path test before the
+  migration implementation.
+- **T080 before T081.** Historical reads must enforce the watermark before replay is implemented.
+- **T082, T083, and T084 before T073.** The documented CLI paths, clean seed, and baseline behavior
+  must exist before the quickstart is executed end to end.
+- **T065 and T068 before T073.** The finding query contract must be implemented and verified before
+  the quickstart validation.
+- **T089 before T072 before T073.** T089 creates the initial README with verified rollback guidance;
+  T072 extends it without replacing that material before end-to-end validation.
+- **T089 before T075.** The constitution audit cannot pass without a documented and verified
+  rollback path.
+- **T073, then T074, then T075.** End-to-end validation precedes static quality checks, and the
+  post-implementation constitution audit is the final gate.
 
 ### Within each user story
 
@@ -308,11 +330,29 @@ is what makes the whole thing defensible under inspection.
 
 - Constitution v1.1.0 governs. Where it and any artifact conflict, the constitution wins.
 - Every task's "done when" is the named test passing or the named command running clean.
-- **83 tasks.** Suffixed IDs (T031a, T033a, T035a, T049a, T055a, T055b, T066a) were added by
-  `/speckit-analyze` remediation rather than renumbering, so every existing reference stays valid.
+- Suffixed and convergence task IDs were added by analysis and convergence remediation rather than
+  renumbering, so every existing reference stays valid.
 - Three tasks look like ordinary hygiene and are not: **T028** (sweep) is the compensating control
   for sharing one Supabase project; **T064** (watermark binding) is the only structural defence
   against a rule that silently breaks historical reproducibility; and **T035a** (validation parity)
   is what stops the Python validator and the database trigger drifting apart, with the trigger being
   the one that actually enforces constitution principle I.
 - Commit after each task or logical group.
+
+---
+
+## Phase 8: Convergence
+
+- [ ] T077 **CRITICAL** Add `migrations/versions/0010_remove_test_session_registry.py` to safely remove the obsolete runtime-created `public.dq_test_session` table from existing unprefixed databases while remaining skipped or harmless for prefixed test schemas, without editing an applied migration; replace its runtime creation and mutation in `tests/conftest.py` with PostgreSQL session advisory locks derived deterministically from the canonical `test_<YYYYMMDDHHMMSS>_<uuid6>_` prefix, hold each lock through a dedicated connection for the pytest session, make the startup sweep skip prefixes whose lock is held and remove orphaned prefixed schemas only after acquiring their lock, and add integration tests proving active sessions are preserved and crashed-session schemas are removed per Constitution Platform & Data Constraints / quickstart test isolation / T028 (contradicts)
+- [ ] T078 Extend `src/dq/rules/library/hcp_npi_format.yaml` with deterministic NPI check-digit validation, update the synthetic generator so non-defect NPIs are checksum-valid, and add malformed-checksum cases to the golden set per FR-015 (partial)
+- [ ] T079 After the failing fresh-head index assertions in T085, implement the declared case-folding, whitespace and punctuation handling, and postal-code truncation in `src/dq/rules/library/hcp_dup_composite.yaml`; keep the normalization in versioned rule configuration, update the domain metadata, write a failing upgrade-path test, and add `migrations/versions/0011_composite_normalization_index.py` to replace the raw composite unique index with an expression index using the exact normalization rules without editing an applied migration; add equivalent-format rule tests, with T085 retaining ownership of fresh-head schema/index coverage, per FR-016b / FR-016c (partial)
+- [ ] T080 Bind `:reference_watermark` into every historical predicate read that can observe later-delivered commercial rows, including `territory_alignment` and `data_batch`; update `src/dq/db/sql_objects.py` and add `migrations/versions/0012_historical_watermark_validation.py` so existing databases receive the validator and trigger behavior without editing an applied migration; add fresh-head and upgrade-path tests and extend structural predicate validation and reproducibility tests with later alignment and feed deliveries per FR-003d / SC-010 / T064 (partial)
+- [ ] T081 Implement explicit historical replay through `dq run-rules --replay-of <rule_run_id>` and `migrations/versions/0013_rule_run_replay_lineage.py` without editing an applied migration: accept only an original run with status `COMPLETED`; derive its scope, `as_of_date`, `reference_watermark`, complete `session_settings`, and exact `rule_version_id` set from persisted records; reject `RUNNING`, `FAILED`, or `COMPLETED_WITH_ERRORS` sources and reject combining replay with scope or `--rule`; create a new run with nullable self-referencing `replay_of_rule_run_id` and restrictive deletion behavior, retain existing finding uniqueness, record replay rule outcomes in `rule_run_rule_version`, and compare finding-set equality over rule version, scope key, subject key, offending value, observed value, expected value, and severity rather than requiring duplicate replay-owned findings; test deterministic replay separately from a normal fresh evaluation per SC-010 / US3 (contradicts)
+- [ ] T082 Add the documented `dq seed --periods` and `dq seed --amend-master` operational paths, including persisted-state reconstruction needed to amend an earlier seed, and add CLI tests for quickstart Scenarios 1 and 3 per quickstart / T063 (missing)
+- [ ] T083 Make `seed(..., with_defects=False)` produce a genuinely clean world, including delivery of every active expected feed, and add an all-scope zero-findings integration test per US1/AC2 (partial)
+- [ ] T084 Define volume-deviation scope as source and period with comparison grain `(product_key, territory_code)`; compare only grains present in both the current and immediately prior eligible period so a new product or territory combination without a baseline produces no finding, store the source-period deterministically in `scope_key` and the product-and-territory identity deterministically in `subject_key`, update the rule contract and seed data, and add tests proving both no-baseline suppression and a legitimate threshold breach per FR-022 / spec Edge Cases (partial)
+- [ ] T085 Before T079, add initially failing fresh-head assertions in `tests/integration/test_schema_indexes.py` that every index named by the data model exists and that the composite-match index uses the exact normalized expressions and `COLLATE "C"` required by FR-016b / FR-016c; upgrade-path coverage remains owned by T079 (missing)
+- [ ] T086 Add an integration test with one deliberately failing predicate that proves the run records `ERRORED`, continues remaining rules, and closes `COMPLETED_WITH_ERRORS` per FR-014 / spec Edge Cases (missing)
+- [ ] T087 Add seeded acceptance coverage for one record failing three independent rules and for an empty batch remaining distinguishable from a missing feed per US1/AC3 / spec Edge Cases (missing)
+- [ ] T088 Normalize YAML/Pydantic shape and vocabulary failures into `RuleDefinitionError` with the source filename, and test CLI error rendering without a traceback per contract: rule-definition registration outcomes (partial)
+- [ ] T089 Create `README.md` if it does not exist and document the verified Feature 1 rollback procedure there and in `specs/001-data-foundation/quickstart.md`: cover Alembic downgrade boundaries, the required database role, handling of running or failed rule runs, and backup or export requirements for append-only findings; execute downgrade and restoration to head in an isolated prefixed test schema and record the verification evidence, with T072 later extending the README without replacing this material, per Constitution Development Workflow & Quality Gates (missing)

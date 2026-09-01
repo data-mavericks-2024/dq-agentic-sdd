@@ -8,7 +8,12 @@ errored rules are surfaced, and the summary no longer double-counts across rule 
 ## Library API
 
 ```python
-def run_rules(scope: RunScope, *, rule_keys: Sequence[str] | None = None) -> RuleRunResult: ...
+def run_rules(
+    scope: RunScope | None = None,
+    *,
+    rule_keys: Sequence[str] | None = None,
+    replay_of: int | None = None,
+) -> RuleRunResult: ...
 def summarise_scope(scope: RunScope) -> ScopeSummary: ...
 def summarise_batch(batch_id: int) -> ScopeSummary: ...   # convenience wrapper over BatchScope
 def query_findings(
@@ -25,19 +30,32 @@ BatchScope(batch_id: int)
 SourcePeriodScope(source_system_code: str, period: DateRange)
 ```
 
-**A run takes a scope, not a batch.** Revision 1's `run_rules(batch_id)` could not express "check
-whether the September feed from Veeva ever arrived" — the case that has no batch by definition, and
-that FR-021d and SC-009 require.
+**A fresh run takes a scope, not a batch identifier alone.** Revision 1's `run_rules(batch_id)` could
+not express "check whether the September feed from Veeva ever arrived" — the case that has no batch
+by definition, and that FR-021d and SC-009 require. Historical replay instead takes `replay_of` and
+MUST NOT also receive `scope` or `rule_keys`.
 
 All return values are Pydantic models. `query_findings` supports any combination of filters
 (FR-023).
 
 ## `run_rules` semantics
 
-1. Resolve `as_of_date` (the scope's business-period end) and `reference_watermark`
-   (`max(batch_id)` visible now).
-2. Open a `rule_run` row with status `RUNNING`, a fresh `correlation_id`, and the resolved
-   `as_of_date`, `reference_watermark`, and `session_settings`.
+Fresh evaluation and replay are distinct modes:
+
+- A fresh evaluation requires `scope`, resolves a new execution context, and selects currently
+  applicable active rule versions. It may optionally receive `rule_keys`.
+- Replay requires `replay_of=<rule_run_id>`, accepts only an original run with status `COMPLETED`,
+  derives its original scope, copies its complete execution context, and executes the exact
+  `rule_version_id` set recorded in `rule_run_rule_version`.
+- Supplying neither mode, both modes, or combining replay with `rule_keys` raises
+  `InvalidRunRequestError`. `RUNNING`, `FAILED`, and `COMPLETED_WITH_ERRORS` replay sources raise
+  `ReplaySourceError`.
+
+1. For a fresh evaluation, resolve `as_of_date` (the scope's business-period end),
+   `reference_watermark` (`max(batch_id)` visible now), session settings, and applicable rule
+   versions. For replay, load all of them from the completed original run.
+2. Open a `rule_run` row with status `RUNNING`, a fresh `correlation_id`, the selected execution
+   context, and `replay_of_rule_run_id` set only for replay.
 3. Take an advisory lock on `(scope_key, rule_version_id)` per rule.
 4. Pin the session (research.md D10):
    ```sql
@@ -95,9 +113,12 @@ Re-running the same rule versions over the same scope inserts nothing new — gu
 application-side check (FR-011, SC-003). A crashed run is recovered by re-running it.
 
 **Idempotency is not the same as reproducibility.** The constraint guarantees non-duplication. That
-the finding *set* is identical comes from pinning `as_of_date`, `reference_watermark`, and
-`session_settings` — recorded on `rule_run` so two runs can be compared rather than assumed equal.
-Conflating the two was revision 1's central error.
+the evaluated finding *set* is identical comes from explicit replay of the original scope,
+`as_of_date`, `reference_watermark`, `session_settings`, and exact rule-version set. Equality compares
+rule version, scope key, subject key, offending value, observed value, expected value, and severity.
+It does not require duplicate finding rows owned by the replay run; the replay and its outcomes are
+recorded in `rule_run` and `rule_run_rule_version`. Conflating fresh evaluation, idempotency, and
+replay was revision 1's central error.
 
 ## Connection and role
 
@@ -132,6 +153,7 @@ dq seed --periods 3 --with-defects
 dq run-rules --batch-id 42
 dq run-rules --source VEEVA --period 2026-09
 dq run-rules --batch-id 42 --rule HCP-NPI-FORMAT
+dq run-rules --replay-of 1234
 dq summarise --batch-id 42
 dq findings --batch-id 42 --severity HIGH
 dq rules register path/to/rule.yaml
@@ -152,6 +174,9 @@ it.
 | Condition | Raised |
 |---|---|
 | Scope resolves to no batch and no feed expectation | `ScopeNotFoundError` |
+| Neither or both fresh scope and replay source supplied | `InvalidRunRequestError` |
+| Replay combined with `--rule` | `InvalidRunRequestError` |
+| Replay source is not `COMPLETED` | `ReplaySourceError` |
 | Predicate fails to execute | Recorded `ERRORED`; run continues; status becomes `COMPLETED_WITH_ERRORS` |
 | Registration validation fails | Trigger raises; surfaced as `RuleDefinitionError` |
 | Connected role is not `dq_engine` | `RoleAssertionError` at connection open |

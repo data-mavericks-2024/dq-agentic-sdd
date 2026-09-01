@@ -104,15 +104,23 @@ copies 100K+ rows per run for no benefit over a watermark filter).
 Verified 2026-08-26 by building T060, which could not be written as specified without an addition
 nobody had noticed was needed.
 
-Recording `as_of_date` and `reference_watermark` makes two runs *comparable*. It does not make the
-second one reproduce the first. A re-run recomputes its own watermark, so once a later batch has
-landed it evaluates a different delivered world — correctly, and with no way to ask for the old one
-back. Every artifact said "any historical run can be reproduced"; nothing said *how*.
+Recording `as_of_date`, `reference_watermark`, and `session_settings` makes two runs *comparable*.
+It does not make the second one reproduce the first. A fresh evaluation recomputes its context and
+selects currently applicable rule versions, so once later data or rule versions exist it correctly
+evaluates a different world. Replay must therefore be a distinct operation.
 
-`run_rules(..., replay_of=<rule_run_id>)` closes it, reusing a recorded run's two parameters instead
-of computing fresh ones. Exposed as `dq run-rules --replay-of`. The replay is recorded as its own
-`rule_run` — an audit row is never overwritten — carrying identical pinned values, which is what
-makes "same findings" checkable rather than coincidental.
+`run_rules(..., replay_of=<rule_run_id>)`, exposed as `dq run-rules --replay-of`, closes the gap. It
+accepts only an original run with status `COMPLETED`; `RUNNING`, `FAILED`, and
+`COMPLETED_WITH_ERRORS` runs are rejected as incomplete replay sources. Replay derives the original
+scope, reuses its complete pinned context, and executes the exact `rule_version_id` set recorded in
+`rule_run_rule_version`. Scope arguments and rule filters cannot be combined with replay.
+
+Replay is recorded as a new append-only `rule_run` whose nullable `replay_of_rule_run_id` references
+the original run. The existing finding uniqueness constraint remains unchanged, so a replay does
+not duplicate finding rows. Equality is evaluated over rule version, scope key, subject key,
+offending value, observed value, expected value, and severity; it does not require new findings to
+be owned by the replay run. The replay's rule versions and outcomes are recorded in
+`rule_run_rule_version`.
 
 **Why the gap survived design review.** Both parameters were correctly identified, correctly stored,
 and correctly bound into predicates. The missing piece was not a value but a verb, and reading the
@@ -178,14 +186,18 @@ the existing roles privileges on their own prefixed schemas only.
   development roles** — meaning the privilege test would be testing dev roles, and a teardown that
   dropped them would break development outright.
 
-**Live-run protection.** The sweep skips any schema whose prefix matches an entry in a session
-registry table held outside the prefixed schemas, so a long `-m volume` run cannot have its schemas
-dropped by a concurrently starting session.
+**Live-run protection.** Each pytest session keeps a dedicated session-pooler connection open and
+holds a PostgreSQL session advisory lock derived deterministically from its canonical prefix. The
+startup sweep first selects stale candidates by the timestamp embedded in the prefix, skips any
+candidate whose lock is held, and drops an orphaned prefix only after acquiring its lock. Process
+termination closes the dedicated connection and releases the lock, so liveness requires no
+persistent registry. No test session creates or mutates a public session-registry table.
 
 **Alternatives considered.** `testcontainers` (unavailable — no Docker; named because its absence is
 the reason for all of this). A second Supabase project (recommended and declined; reversible by
-repointing `TEST_DATABASE_URL`). Transactional rollback per test (cannot test migrations or DDL, and
-breaks on Alembic's advisory locks).
+repointing `TEST_DATABASE_URL`). A persistent public session registry (survives a crashed process
+and violates prefix isolation unless separately governed). Transactional rollback per test (cannot
+test migrations or DDL, and breaks on Alembic's advisory locks).
 
 ---
 
