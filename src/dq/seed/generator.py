@@ -151,13 +151,35 @@ def _hcp_row(
         "key": f"HCP-{source_id}-{index:04d}",
         "vf": valid_from,
         "bid": batch_id,
-        "npi": f"{1000000000 + unique:010d}",
+        "npi": _synthetic_npi(unique),
         "first": _GIVEN[index % len(_GIVEN)],
         "last": _SURNAMES[index % len(_SURNAMES)],
         "postal": f"{10000 + unique:05d}",
         "state": _STATES[index % len(_STATES)],
         "hco": f"HCO-{source_id}-{index % HCOS_PER_SOURCE:03d}",
     }
+
+
+def _npi_check_digit(identifier: str) -> str:
+    """Return the CMS Luhn check digit for a nine-digit NPI identifier."""
+    if len(identifier) != 9 or not identifier.isascii() or not identifier.isdigit():
+        raise ValueError("NPI identifier must contain exactly nine ASCII digits")
+
+    # 24 is the Luhn contribution of the CMS 80840 prefix. Identifier positions 1, 3, 5,
+    # 7, and 9 are doubled when the final check digit is the rightmost digit.
+    total = 24
+    for index, character in enumerate(identifier):
+        value = int(character) * (2 if index % 2 == 0 else 1)
+        total += value // 10 + value % 10
+    return str((10 - total % 10) % 10)
+
+
+def _synthetic_npi(unique: int) -> str:
+    """Create a deterministic, checksum-valid NPI in the synthetic ``1`` range."""
+    if not 0 <= unique <= 99_999_999:
+        raise ValueError("synthetic NPI value must be between 0 and 99999999")
+    identifier = f"{100_000_000 + unique:09d}"
+    return identifier + _npi_check_digit(identifier)
 
 
 _INSERT_HCP = text(
@@ -451,7 +473,7 @@ def amend_master(settings: Settings, result: SeedResult) -> Amendment:
                     "key": AMENDED_ORPHAN_KEY,
                     "vf": back_dated,
                     "bid": batch_id,
-                    "npi": "9999999002",
+                    "npi": _synthetic_npi(90_000_002),
                     "first": "Retroactive",
                     "last": "Retroactive",
                     "postal": "79999",

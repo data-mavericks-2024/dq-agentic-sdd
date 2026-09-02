@@ -35,6 +35,7 @@ from dq.seed.generator import (
     TARGET_SOURCE,
     _product_key,
     _product_uom,
+    _synthetic_npi,
     _territory_code,
 )
 
@@ -103,7 +104,7 @@ def inject(conn: Connection, result: SeedResult) -> None:
 def _inject_npi_defects(
     conn: Connection, result: SeedResult, sid: int, bid: int, valid_from: date
 ) -> None:
-    """Two HCPs: one with no NPI at all, one with an NPI that is the wrong shape.
+    """Missing, malformed-shape, and malformed-checksum NPIs.
 
     Both carry a unique postal code and a unique surname, so neither can also trip either duplicate
     rule — the point of injecting one family at a time is lost if the records overlap.
@@ -111,6 +112,7 @@ def _inject_npi_defects(
     cases = [
         (None, "absent NPI"),
         ("123", "malformed NPI — three digits, not ten"),
+        ("1234567890", "malformed NPI — ten digits with an invalid check digit"),
     ]
     for i, (npi, note) in enumerate(cases):
         hcp_id = _insert_hcp_returning(
@@ -200,7 +202,7 @@ def _inject_namesake_pair(
         vf=valid_from,
         bid=bid,
         # Unique NPI, so this record trips the composite rule and nothing else.
-        npi="9999999001",
+        npi=_synthetic_npi(90_000_001),
         first=partner.first_name,
         last=partner.last_name,
         postal=partner.postal_code,

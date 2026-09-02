@@ -70,9 +70,30 @@ def _generate(conn: Connection) -> int:
         INSERT INTO hcp (source_system_id, source_key, valid_from, batch_id, npi,
                          first_name, last_name, postal_code, licence_state)
         SELECT :s, 'VH-' || g, DATE '2026-09-01', :b,
-               lpad(g::text, 10, '0'),
+               npi.identifier || mod(
+                   10 - mod(
+                       24
+                       + ((substring(npi.identifier, 1, 1)::integer * 2) / 10)
+                       + mod(substring(npi.identifier, 1, 1)::integer * 2, 10)
+                       + substring(npi.identifier, 2, 1)::integer
+                       + ((substring(npi.identifier, 3, 1)::integer * 2) / 10)
+                       + mod(substring(npi.identifier, 3, 1)::integer * 2, 10)
+                       + substring(npi.identifier, 4, 1)::integer
+                       + ((substring(npi.identifier, 5, 1)::integer * 2) / 10)
+                       + mod(substring(npi.identifier, 5, 1)::integer * 2, 10)
+                       + substring(npi.identifier, 6, 1)::integer
+                       + ((substring(npi.identifier, 7, 1)::integer * 2) / 10)
+                       + mod(substring(npi.identifier, 7, 1)::integer * 2, 10)
+                       + substring(npi.identifier, 8, 1)::integer
+                       + ((substring(npi.identifier, 9, 1)::integer * 2) / 10)
+                       + mod(substring(npi.identifier, 9, 1)::integer * 2, 10),
+                       10
+                   ),
+                   10
+               )::text,
                'First' || g, 'Last' || g, lpad(mod(g, 99999)::text, 5, '0'), 'CA'
         FROM generate_series(1, :n) g
+        CROSS JOIN LATERAL (SELECT '1' || lpad(g::text, 8, '0') AS identifier) npi
         """),
         {"s": source_id, "b": batch_id, "n": HCP_ROWS},
     )

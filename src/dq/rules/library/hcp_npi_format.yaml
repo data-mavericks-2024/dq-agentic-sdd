@@ -6,7 +6,7 @@ owning_function: Master Data Management
 subject_type: record
 parameters: {}
 
-# FR-015 — an HCP with no NPI, or one that is not ten digits.
+# FR-015 — an HCP with no NPI, one that is not ten digits, or an invalid CMS check digit.
 #
 # `coalesce` supplies a marker for the missing case because the `finding` CHECK requires every
 # record-subject finding to carry its offending value: a null there is what SC-002 exists to
@@ -15,10 +15,36 @@ predicate_sql: |
   SELECT h.hcp_id::text          AS subject_key,
          coalesce(h.npi, '<absent>') AS offending_value,
          NULL::text              AS observed_value,
-         '10 digits'::text       AS expected_value
+         '10 digits with a valid NPI check digit'::text AS expected_value
   FROM   hcp h
   WHERE  h.batch_id    =  :batch_id
     AND  h.valid_from <=  :as_of_date
     AND  h.batch_id   <=  :reference_watermark
     AND  NOT h.is_deleted
-    AND  (h.npi IS NULL OR h.npi !~ '^[0-9]{10}$')
+    AND  (
+           h.npi IS NULL
+           OR h.npi !~ '^[0-9]{10}$'
+           OR CASE
+                WHEN h.npi ~ '^[0-9]{10}$' THEN
+                  mod(
+                    24
+                    + ((substring(h.npi, 1, 1)::integer * 2) / 10)
+                    + mod(substring(h.npi, 1, 1)::integer * 2, 10)
+                    + substring(h.npi, 2, 1)::integer
+                    + ((substring(h.npi, 3, 1)::integer * 2) / 10)
+                    + mod(substring(h.npi, 3, 1)::integer * 2, 10)
+                    + substring(h.npi, 4, 1)::integer
+                    + ((substring(h.npi, 5, 1)::integer * 2) / 10)
+                    + mod(substring(h.npi, 5, 1)::integer * 2, 10)
+                    + substring(h.npi, 6, 1)::integer
+                    + ((substring(h.npi, 7, 1)::integer * 2) / 10)
+                    + mod(substring(h.npi, 7, 1)::integer * 2, 10)
+                    + substring(h.npi, 8, 1)::integer
+                    + ((substring(h.npi, 9, 1)::integer * 2) / 10)
+                    + mod(substring(h.npi, 9, 1)::integer * 2, 10)
+                    + substring(h.npi, 10, 1)::integer,
+                    10
+                  ) <> 0
+                ELSE false
+              END
+         )
