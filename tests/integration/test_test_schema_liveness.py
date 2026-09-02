@@ -32,9 +32,8 @@ def test_sweep_preserves_live_prefix_then_removes_it_after_disconnect(
     schema = f"{prefix}commercial"
 
     with admin_engine.connect() as owner:
-        owner.execute(text(f"SET ROLE {Role.MIGRATE.value}"))
         owner.execute(text(f'CREATE SCHEMA "{schema}"'))
-        owner.execute(text("RESET ROLE"))
+        owner.execute(text(f'ALTER SCHEMA "{schema}" OWNER TO {Role.MIGRATE.value}'))
         owner.execute(
             text("SELECT pg_advisory_lock(:key)"), {"key": advisory_lock_key(prefix)}
         )
