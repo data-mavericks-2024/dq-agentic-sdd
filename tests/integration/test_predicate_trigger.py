@@ -206,6 +206,42 @@ def test_rejects_master_join_without_watermark(register: Registrar) -> None:
     )
 
 
+def test_rejects_alignment_reference_without_watermark(register: Registrar) -> None:
+    """Rule 7 also protects alignment rows delivered after a historical run."""
+    predicate = """
+SELECT a.alignment_id::text AS subject_key,
+       a.territory_code     AS offending_value,
+       NULL::text           AS observed_value,
+       NULL::text           AS expected_value
+FROM   territory_alignment a
+WHERE  a.batch_id = :batch_id
+  AND  EXISTS (
+         SELECT 1
+         FROM   territory_alignment later
+         WHERE  later.source_system_id = a.source_system_id
+           AND  later.hcp_source_key = a.hcp_source_key
+           AND  later.effective && a.effective
+       )
+"""
+    _assert_rejected(register, predicate, "Rule 7")
+
+
+def test_rejects_data_batch_reference_without_watermark(register: Registrar) -> None:
+    """Rule 7 protects feed predicates from batches delivered after the pinned world."""
+    predicate = """
+SELECT b.batch_id::text AS subject_key,
+       b.arrival_ts::text AS offending_value,
+       NULL::text AS observed_value,
+       NULL::text AS expected_value
+FROM   data_batch b
+WHERE  b.source_system_id = :scope_source_system_id
+  AND  b.business_period && daterange(
+         CAST(:scope_period_start AS date), CAST(:scope_period_end AS date), '[)'
+       )
+"""
+    _assert_rejected(register, predicate, "Rule 7")
+
+
 def test_rejects_undeclared_parameter(register: Registrar) -> None:
     """Rule 8."""
     _assert_rejected(register, VALID_PREDICATE.replace("'^[0-9]{10}$'", ":some_pattern"), "Rule 8")

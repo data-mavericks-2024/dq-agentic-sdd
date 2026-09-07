@@ -35,3 +35,11 @@ def test_composite_normalization_extends_revision_0010() -> None:
     assert migration.is_file()
     assert _literal_assignment(migration, "revision") == "0011"
     assert _literal_assignment(migration, "down_revision") == "0010"
+
+
+def test_historical_watermark_validation_extends_revision_0011() -> None:
+    migration = REPO_ROOT / "migrations" / "versions" / "0012_historical_watermark_validation.py"
+
+    assert migration.is_file()
+    assert _literal_assignment(migration, "revision") == "0012"
+    assert _literal_assignment(migration, "down_revision") == "0011"

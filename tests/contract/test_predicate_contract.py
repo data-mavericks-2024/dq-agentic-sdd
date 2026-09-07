@@ -10,6 +10,9 @@ makes them the fastest possible signal that a rule file is malformed.
 
 from __future__ import annotations
 
+import re
+from collections import Counter
+
 import pytest
 
 from dq.rules.definition import LIBRARY_DIR, RuleDefinition, load_library
@@ -29,6 +32,11 @@ EXPECTED_RULE_KEYS = {
     "FEED-LATE-MISSING",
     "VOL-DEVIATION",
 }
+
+_DELIVERY_SCOPED_TABLE_REFERENCE = re.compile(
+    r"\b(?:from|join)\s+(territory_alignment|data_batch)\s+(?:as\s+)?([a-z_][a-z0-9_]*)\b",
+    re.IGNORECASE,
+)
 
 
 @pytest.fixture(scope="module")
@@ -114,6 +122,47 @@ def test_master_joining_rules_bind_both_as_of_parameters(library: list[RuleDefin
         assert {"as_of_date", "reference_watermark"} <= bound, (
             f"{rule.rule_key} joins master data but binds only {sorted(bound)}."
         )
+
+
+def test_historical_delivery_reads_apply_reference_watermark_per_alias(
+    library: list[RuleDefinition],
+) -> None:
+    """Every non-scope alignment or batch read is bounded by delivery time.
+
+    ``territory_alignment`` and ``data_batch`` are not version-chain master tables, so the original
+    Rule 7 check ignored them. They are still append-only deliveries: an unbounded historical read
+    can observe a row whose batch arrived after the run's recorded watermark. Counting references
+    and alias-qualified bounds prevents one unrelated comparison from laundering another read.
+    """
+    violations: list[str] = []
+    for rule in library:
+        sql = rule.predicate_sql.lower()
+        references = _DELIVERY_SCOPED_TABLE_REFERENCE.findall(sql)
+        if not references:
+            continue
+
+        required_bounds = 0
+        applied_bounds = 0
+        references_by_alias = Counter(alias for _, alias in references)
+        for alias, reference_count in references_by_alias.items():
+            exact_scope = re.compile(
+                rf"\b{re.escape(alias)}\.batch_id\s*=\s*:batch_id\b", re.IGNORECASE
+            )
+            watermark = re.compile(
+                rf"\b{re.escape(alias)}\.batch_id\s*<=\s*:reference_watermark\b",
+                re.IGNORECASE,
+            )
+            exact_scope_count = len(exact_scope.findall(sql))
+            required_bounds += max(0, reference_count - exact_scope_count)
+            applied_bounds += len(watermark.findall(sql))
+
+        if applied_bounds < required_bounds:
+            violations.append(
+                f"{rule.rule_key}: {required_bounds} historical delivery read(s), "
+                f"{applied_bounds} alias-qualified :reference_watermark bound(s)"
+            )
+
+    assert not violations, "Unbounded historical delivery reads:\n" + "\n".join(violations)
 
 
 def test_severities_and_domains_are_deliberate(library: list[RuleDefinition]) -> None:
