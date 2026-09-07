@@ -27,3 +27,11 @@ def test_registry_cleanup_extends_revision_0009() -> None:
     assert migration.is_file()
     assert _literal_assignment(migration, "revision") == "0010"
     assert _literal_assignment(migration, "down_revision") == "0009"
+
+
+def test_composite_normalization_extends_revision_0010() -> None:
+    migration = REPO_ROOT / "migrations" / "versions" / "0011_composite_normalization_index.py"
+
+    assert migration.is_file()
+    assert _literal_assignment(migration, "revision") == "0011"
+    assert _literal_assignment(migration, "down_revision") == "0010"

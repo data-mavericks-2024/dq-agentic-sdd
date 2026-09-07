@@ -251,9 +251,25 @@ sales_transaction = Table(
 # non-deterministic ICU collation, text `=` would also become case- and accent-insensitive,
 # silently redefining what FR-016b matches without a new rule version.
 
-#: The four columns FR-016b matches on, each byte-ordered. Asserted by name in
-#: tests/integration/test_schema_indexes.py.
+#: The four normalized expressions FR-016b matches on, each byte-ordered. Asserted by name and
+#: planner eligibility in tests/integration/test_schema_indexes.py.
 COMPOSITE_MATCH_INDEX: Final[str] = "ix_hcp_composite_match"
+
+_STRIP_SPACE_AND_PUNCTUATION: Final[str] = "'[[:space:][:punct:]]+', '', 'g'"
+_NORMALIZED_LAST_NAME: Final[str] = (
+    f'regexp_replace(lower(last_name COLLATE "C"), {_STRIP_SPACE_AND_PUNCTUATION}) COLLATE "C"'
+)
+_NORMALIZED_FIRST_INITIAL: Final[str] = (
+    f'left(regexp_replace(lower(first_name COLLATE "C"), '
+    f"{_STRIP_SPACE_AND_PUNCTUATION}), 1) " + 'COLLATE "C"'
+)
+_NORMALIZED_POSTAL_CODE: Final[str] = (
+    f'left(regexp_replace(lower(postal_code COLLATE "C"), '
+    f"{_STRIP_SPACE_AND_PUNCTUATION}), 5) " + 'COLLATE "C"'
+)
+_NORMALIZED_LICENCE_STATE: Final[str] = (
+    f'regexp_replace(lower(licence_state COLLATE "C"), {_STRIP_SPACE_AND_PUNCTUATION}) COLLATE "C"'
+)
 
 _indexes = [
     # As-of resolution: the `ORDER BY valid_from DESC LIMIT 1` idiom reads straight down this.
@@ -273,13 +289,14 @@ _indexes = [
     ),
     # FR-016a — HCP records sharing an NPI under distinct surrogate keys.
     Index("ix_hcp_npi", hcp.c.npi, postgresql_where=hcp.c.npi.isnot(None)),
-    # FR-016b — composite match. `left(first_name, 1)` is IMMUTABLE, so it is indexable.
+    # FR-016b/FR-016c — exact normalized composite match. It remains non-unique because matching
+    # rows are the defect the rule must detect, not writes the database should reject.
     Index(
         COMPOSITE_MATCH_INDEX,
-        text('last_name COLLATE "C"'),
-        text('left(first_name, 1) COLLATE "C"'),
-        text('postal_code COLLATE "C"'),
-        text('licence_state COLLATE "C"'),
+        text(_NORMALIZED_LAST_NAME),
+        text(_NORMALIZED_FIRST_INITIAL),
+        text(_NORMALIZED_POSTAL_CODE),
+        text(_NORMALIZED_LICENCE_STATE),
         _table=hcp,
     ),
     # FR-018 — range containment for "was this HCP aligned to this territory on this date".

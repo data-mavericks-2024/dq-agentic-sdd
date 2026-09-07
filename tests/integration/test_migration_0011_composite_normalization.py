@@ -109,6 +109,31 @@ def _database_revision(conn: Connection, dq_schema: str) -> str:
     )
 
 
+def _restore_historical_0010_index(conn: Connection, commercial_schema: str) -> None:
+    """Recreate the raw index that an already-applied revision 0010 database contains.
+
+    Migration 0003 creates tables from live SQLAlchemy metadata. Once T079 updates that metadata,
+    building revision 0010 from scratch would otherwise create the future normalized index and
+    cease to represent a real database upgraded before revision 0011 existed.
+    """
+    conn.execute(text(f"SET ROLE {Role.MIGRATE.value}"))
+    try:
+        conn.execute(text(f'DROP INDEX "{commercial_schema}"."{COMPOSITE_MATCH_INDEX}"'))
+        conn.execute(
+            text(
+                f'''CREATE INDEX "{COMPOSITE_MATCH_INDEX}"
+                    ON "{commercial_schema}".hcp (
+                        last_name COLLATE "C",
+                        left(first_name, 1) COLLATE "C",
+                        postal_code COLLATE "C",
+                        licence_state COLLATE "C"
+                    )'''
+            )
+        )
+    finally:
+        conn.execute(text("RESET ROLE"))
+
+
 def _find_index_plan(node: object) -> dict[str, object] | None:
     if isinstance(node, dict):
         if node.get("Index Name") == COMPOSITE_MATCH_INDEX:
@@ -140,6 +165,8 @@ def upgrade_case(test_database_url: str) -> Iterator[UpgradeCase]:
     config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
     try:
         command.upgrade(config, "0010")
+        with engine.begin() as conn:
+            _restore_historical_0010_index(conn, physical(Schema.COMMERCIAL, prefix))
         yield UpgradeCase(engine=engine, config=config, prefix=prefix)
     finally:
         if previous is None:

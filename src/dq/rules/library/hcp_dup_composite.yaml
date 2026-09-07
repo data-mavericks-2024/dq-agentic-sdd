@@ -20,8 +20,11 @@ parameters: {}
 # FR-016c is satisfied with no separate mechanism.
 predicate_sql: |
   SELECT h.hcp_id::text AS subject_key,
-         h.last_name || '|' || left(h.first_name, 1)
-                     || '|' || h.postal_code || '|' || h.licence_state AS offending_value,
+         regexp_replace(lower(h.last_name COLLATE "C"), '[[:space:][:punct:]]+', '', 'g') COLLATE "C"
+           || '|' || left(regexp_replace(lower(h.first_name COLLATE "C"), '[[:space:][:punct:]]+', '', 'g'), 1) COLLATE "C"
+           || '|' || left(regexp_replace(lower(h.postal_code COLLATE "C"), '[[:space:][:punct:]]+', '', 'g'), 5) COLLATE "C"
+           || '|' || regexp_replace(lower(h.licence_state COLLATE "C"), '[[:space:][:punct:]]+', '', 'g') COLLATE "C"
+                            AS offending_value,
          NULL::text     AS observed_value,
          NULL::text     AS expected_value
   FROM   hcp h
@@ -39,10 +42,14 @@ predicate_sql: |
            WHERE  o.valid_from <= :as_of_date
              AND  o.batch_id   <= :reference_watermark
              AND  NOT o.is_deleted
-             AND  o.last_name          = h.last_name
-             AND  left(o.first_name, 1) = left(h.first_name, 1)
-             AND  o.postal_code        = h.postal_code
-             AND  o.licence_state      = h.licence_state
+             AND  regexp_replace(lower(o.last_name COLLATE "C"), '[[:space:][:punct:]]+', '', 'g') COLLATE "C"
+                  = regexp_replace(lower(h.last_name COLLATE "C"), '[[:space:][:punct:]]+', '', 'g') COLLATE "C"
+             AND  left(regexp_replace(lower(o.first_name COLLATE "C"), '[[:space:][:punct:]]+', '', 'g'), 1) COLLATE "C"
+                  = left(regexp_replace(lower(h.first_name COLLATE "C"), '[[:space:][:punct:]]+', '', 'g'), 1) COLLATE "C"
+             AND  left(regexp_replace(lower(o.postal_code COLLATE "C"), '[[:space:][:punct:]]+', '', 'g'), 5) COLLATE "C"
+                  = left(regexp_replace(lower(h.postal_code COLLATE "C"), '[[:space:][:punct:]]+', '', 'g'), 5) COLLATE "C"
+             AND  regexp_replace(lower(o.licence_state COLLATE "C"), '[[:space:][:punct:]]+', '', 'g') COLLATE "C"
+                  = regexp_replace(lower(h.licence_state COLLATE "C"), '[[:space:][:punct:]]+', '', 'g') COLLATE "C"
              AND  (o.source_system_id, o.source_key)
                   IS DISTINCT FROM (h.source_system_id, h.source_key)
          )
