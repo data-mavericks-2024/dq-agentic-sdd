@@ -34,7 +34,8 @@ EXPECTED_RULE_KEYS = {
 }
 
 _DELIVERY_SCOPED_TABLE_REFERENCE = re.compile(
-    r"\b(?:from|join)\s+(territory_alignment|data_batch)\s+(?:as\s+)?([a-z_][a-z0-9_]*)\b",
+    r"\b(?:from|join)\s+(territory_alignment|sales_transaction|data_batch)\s+"
+    r"(?:as\s+)?([a-z_][a-z0-9_]*)\b",
     re.IGNORECASE,
 )
 

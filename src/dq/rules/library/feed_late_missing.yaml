@@ -38,6 +38,7 @@ predicate_sql: |
            (SELECT max(b.arrival_ts AT TIME ZONE 'UTC')::text
             FROM   data_batch b
             WHERE  b.source_system_id = f.source_system_id
+              AND  b.batch_id <= :reference_watermark
               AND  b.business_period && daterange(:scope_period_start, :scope_period_end, '[)')),
            'never delivered')                               AS observed_value,
          CAST(CAST(:scope_period_end AS date) + f.delivery_window AS text) AS expected_value
@@ -49,6 +50,7 @@ predicate_sql: |
            SELECT 1
            FROM   data_batch b
            WHERE  b.source_system_id = f.source_system_id
+             AND  b.batch_id <= :reference_watermark
              AND  b.business_period && daterange(:scope_period_start, :scope_period_end, '[)')
              AND  (b.arrival_ts AT TIME ZONE 'UTC')
                   <= (CAST(:scope_period_end AS date) + f.delivery_window)

@@ -46,6 +46,7 @@ DECLARE
         'sales_transaction','data_batch','source_system','feed_expectation'
     ];
     master_tables   text[] := ARRAY['hcp','hco','product','territory'];
+    delivery_tables text[] := ARRAY['territory_alignment','sales_transaction','data_batch'];
     -- Bound by the engine on every run; never declared in `parameters`.
     --
     -- The three `scope_*` names exist because a `source_period` rule has no batch to anchor to.
@@ -82,6 +83,11 @@ DECLARE
     order_tail   text;
     last_term    text;
     tbl          text;
+    delivery_alias           text;
+    delivery_reference_count integer;
+    exact_scope_count        integer;
+    watermark_count          integer;
+    as_of_count              integer;
 BEGIN
     IF predicate_sql IS NULL OR btrim(predicate_sql) = '' THEN
         RAISE EXCEPTION 'predicate_sql is empty.' USING ERRCODE = 'check_violation';
@@ -261,39 +267,88 @@ BEGIN
     -- passes the determinism test, which runs twice within the same minute,
     -- and silently breaks reproducibility for every historical re-run.
     ----------------------------------------------------------------------
-    FOREACH tbl IN ARRAY master_tables LOOP
-        IF stripped ~ ('\\y' || tbl || '\\y') THEN
-            -- No leading `\\y`: a word boundary cannot occur between a space and a colon, both
-            -- being non-word characters, so anchoring the front would never match.
-            IF param_scan !~ ':as_of_date\\y' OR param_scan !~ ':reference_watermark\\y' THEN
-                RAISE EXCEPTION
-                    'Rule 7: predicate references master table % but does not bind both '
-                    ':as_of_date and :reference_watermark. See the required as-of join idiom in '
-                    'contracts/rule-definition.md.', tbl
-                    USING ERRCODE = 'check_violation';
-            END IF;
+    FOR tbl, delivery_alias, delivery_reference_count IN
+        SELECT captures[1], captures[2], count(*)::integer
+        FROM regexp_matches(
+            stripped,
+            '\\y(?:from|join)\\s+(hcp|hco|product|territory)\\s+'
+            '(?:as\\s+)?([a-z_][a-z0-9_]*)\\y',
+            'g'
+        ) AS captures
+        WHERE captures[1] = ANY(master_tables)
+        GROUP BY captures[1], captures[2]
+    LOOP
+        SELECT count(*)::integer INTO as_of_count
+        FROM regexp_matches(
+            stripped,
+            '\\y' || delivery_alias || '\\.valid_from\\s*<=\\s*:as_of_date\\y',
+            'g'
+        );
 
-            -- Present is not the same as applied. A predicate can mention
-            -- :reference_watermark in an unrelated clause and still join master
-            -- data unbounded -- the R2 risk the presence check only half-covers.
-            -- Each parameter must be compared against the versioning column it
-            -- exists to constrain.
-            IF stripped !~ '\\yvalid_from\\s*<=\\s*:as_of_date\\y' THEN
-                RAISE EXCEPTION
-                    'Rule 7: predicate references master table % and mentions :as_of_date, but '
-                    'never compares it against valid_from. Binding a parameter without applying '
-                    'it leaves the join unbounded.', tbl
-                    USING ERRCODE = 'check_violation';
-            END IF;
+        SELECT count(*)::integer INTO watermark_count
+        FROM regexp_matches(
+            stripped,
+            '\\y' || delivery_alias
+                || '\\.batch_id\\s*<=\\s*:reference_watermark\\y',
+            'g'
+        );
 
-            IF stripped !~ '\\ybatch_id\\s*<=\\s*:reference_watermark\\y' THEN
-                RAISE EXCEPTION
-                    'Rule 7: predicate references master table % and mentions '
-                    ':reference_watermark, but never compares it against batch_id. The master '
-                    'reference is still resolved against every delivery.', tbl
-                    USING ERRCODE = 'check_violation';
-            END IF;
-            EXIT;
+        IF as_of_count < delivery_reference_count
+           OR watermark_count < delivery_reference_count
+        THEN
+            RAISE EXCEPTION
+                'Rule 7: predicate references master table % as alias % % time(s), but applies % '
+                'alias-qualified :as_of_date bound(s) and % alias-qualified '
+                ':reference_watermark bound(s). Every master read must apply both.',
+                tbl, delivery_alias, delivery_reference_count, as_of_count, watermark_count
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END LOOP;
+
+    ----------------------------------------------------------------------
+    -- Rule 7, delivery-scoped tables: every historical read is bounded.
+    --
+    -- `territory_alignment`, `sales_transaction`, and `data_batch` are not
+    -- version-chain master tables, but later batches can still add rows whose
+    -- business dates fall inside an earlier run. An exact
+    -- `alias.batch_id = :batch_id` fixes a subject read to its scope. Every
+    -- other occurrence must independently apply
+    -- `alias.batch_id <= :reference_watermark`; one bound cannot launder
+    -- another alias or a repeated subquery using the same alias.
+    ----------------------------------------------------------------------
+    FOR tbl, delivery_alias, delivery_reference_count IN
+        SELECT captures[1], captures[2], count(*)::integer
+        FROM regexp_matches(
+            stripped,
+            '\\y(?:from|join)\\s+(territory_alignment|sales_transaction|data_batch)\\s+'
+            '(?:as\\s+)?([a-z_][a-z0-9_]*)\\y',
+            'g'
+        ) AS captures
+        WHERE captures[1] = ANY(delivery_tables)
+        GROUP BY captures[1], captures[2]
+    LOOP
+        SELECT count(*)::integer INTO exact_scope_count
+        FROM regexp_matches(
+            stripped,
+            '\\y' || delivery_alias || '\\.batch_id\\s*=\\s*:batch_id\\y',
+            'g'
+        );
+
+        SELECT count(*)::integer INTO watermark_count
+        FROM regexp_matches(
+            stripped,
+            '\\y' || delivery_alias
+                || '\\.batch_id\\s*<=\\s*:reference_watermark\\y',
+            'g'
+        );
+
+        IF watermark_count < greatest(delivery_reference_count - exact_scope_count, 0) THEN
+            RAISE EXCEPTION
+                'Rule 7: predicate references delivery table % as alias % % time(s), with % exact '
+                'subject-scope constraint(s), but applies only % alias-qualified '
+                ':reference_watermark bound(s). Every historical delivery read must be bounded.',
+                tbl, delivery_alias, delivery_reference_count, exact_scope_count, watermark_count
+                USING ERRCODE = 'check_violation';
         END IF;
     END LOOP;
 

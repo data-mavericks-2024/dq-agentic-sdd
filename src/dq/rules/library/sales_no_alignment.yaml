@@ -14,7 +14,8 @@ parameters: {}
 # assignment, not two and not none.
 #
 # `territory_alignment` is not a version-chain master table, so no as-of resolution applies: the
-# assignment's own effective range already answers "what was true on that date".
+# assignment's own effective range answers "what was true on that date". The watermark separately
+# answers which alignment deliveries existed when the run began; both boundaries are required.
 predicate_sql: |
   SELECT t.txn_id::text   AS subject_key,
          t.territory_code AS offending_value,
@@ -26,6 +27,7 @@ predicate_sql: |
            SELECT 1
            FROM   territory_alignment a
            WHERE  a.source_system_id = t.source_system_id
+             AND  a.batch_id        <= :reference_watermark
              AND  a.hcp_source_key   = t.hcp_key
              AND  a.territory_code   = t.territory_code
              AND  a.effective       @> t.txn_date

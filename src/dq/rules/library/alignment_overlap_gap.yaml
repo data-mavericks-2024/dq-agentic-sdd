@@ -36,6 +36,7 @@ predicate_sql: |
              WHERE  b.source_system_id = a.source_system_id
                AND  b.hcp_source_key   = a.hcp_source_key
                AND  b.alignment_id    <> a.alignment_id
+               AND  b.batch_id        <= :reference_watermark
                AND  b.effective       && a.effective
            )
            OR (
@@ -44,6 +45,7 @@ predicate_sql: |
                FROM   territory_alignment c
                WHERE  c.source_system_id  = a.source_system_id
                  AND  c.hcp_source_key    = a.hcp_source_key
+                 AND  c.batch_id          <= :reference_watermark
                  AND  lower(c.effective)  > upper(a.effective)
              )
              AND NOT EXISTS (
@@ -51,6 +53,7 @@ predicate_sql: |
                FROM   territory_alignment d
                WHERE  d.source_system_id = a.source_system_id
                  AND  d.hcp_source_key   = a.hcp_source_key
+                 AND  d.batch_id         <= :reference_watermark
                  AND  d.effective       @> upper(a.effective)
              )
            )
