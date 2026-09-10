@@ -43,3 +43,11 @@ def test_historical_watermark_validation_extends_revision_0011() -> None:
     assert migration.is_file()
     assert _literal_assignment(migration, "revision") == "0012"
     assert _literal_assignment(migration, "down_revision") == "0011"
+
+
+def test_rule_run_replay_lineage_extends_revision_0012() -> None:
+    migration = REPO_ROOT / "migrations" / "versions" / "0013_rule_run_replay_lineage.py"
+
+    assert migration.is_file()
+    assert _literal_assignment(migration, "revision") == "0013"
+    assert _literal_assignment(migration, "down_revision") == "0012"

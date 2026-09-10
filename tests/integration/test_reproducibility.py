@@ -26,12 +26,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import Connection, text
 
 from dq.config.settings import Settings
-from dq.engine.runner import BatchScope, run_rules
+from dq.engine.runner import BatchScope, RuleRunResult, run_rules
+from dq.rules.predicates import bound_parameter_names
 from dq.seed.generator import (
     AMENDED_ORPHAN_KEY,
     TARGET_PERIOD,
@@ -66,13 +68,75 @@ WHERE  t.batch_id = :batch_id
        )
 """)
 
-_FINDINGS = text("""
-SELECT r.rule_key, f.subject_key
+_PERSISTED_FINDINGS = text("""
+SELECT f.rule_version_id, f.scope_key, f.subject_key, f.offending_value,
+       f.observed_value, f.expected_value, f.severity
 FROM   finding f
-JOIN   rule_version rv ON rv.rule_version_id = f.rule_version_id
-JOIN   rule r          ON r.rule_id          = rv.rule_id
 WHERE  f.scope_key = :scope_key
 """)
+
+_RUN_CONTEXT_AND_VERSIONS = text("""
+SELECT rr.scope_type, rr.batch_id, rr.scope_source_system_id,
+       lower(rr.scope_period) AS period_start, upper(rr.scope_period) AS period_end,
+       rr.as_of_date, rr.reference_watermark,
+       rv.rule_version_id, rv.subject_type, rv.predicate_sql, rv.parameters, rv.severity
+FROM   rule_run rr
+JOIN   rule_run_rule_version rrv ON rrv.rule_run_id = rr.rule_run_id
+JOIN   rule_version rv ON rv.rule_version_id = rrv.rule_version_id
+WHERE  rr.rule_run_id = :run_id
+ORDER  BY rv.rule_version_id
+""")
+
+
+def _persisted_finding_set(conn: Connection, scope_key: str) -> set[tuple[Any, ...]]:
+    return {tuple(row) for row in conn.execute(_PERSISTED_FINDINGS, {"scope_key": scope_key}).all()}
+
+
+def _evaluated_finding_set(conn: Connection, run_id: int) -> set[tuple[Any, ...]]:
+    """Evaluate recorded predicates directly, outside the idempotent finding insert.
+
+    Reading ``finding`` cannot prove replay equality because its uniqueness constraint deliberately
+    prevents replay-owned duplicates. This helper compares the predicate outputs the two runs were
+    configured to evaluate instead.
+    """
+    versions = conn.execute(_RUN_CONTEXT_AND_VERSIONS, {"run_id": run_id}).all()
+    assert versions, f"run {run_id} recorded no rule versions"
+
+    evaluated: set[tuple[Any, ...]] = set()
+    for version in versions:
+        assert version.scope_type == "batch"
+        scope_key = f"b:{version.batch_id}"
+        available = {
+            **(version.parameters or {}),
+            "batch_id": version.batch_id,
+            "as_of_date": version.as_of_date,
+            "reference_watermark": version.reference_watermark,
+            "scope_source_system_id": version.scope_source_system_id,
+            "scope_period_start": version.period_start,
+            "scope_period_end": version.period_end,
+        }
+        needed = bound_parameter_names(version.predicate_sql)
+        rows = conn.execute(
+            text(version.predicate_sql), {name: available[name] for name in needed}
+        ).all()
+        evaluated.update(
+            (
+                version.rule_version_id,
+                scope_key,
+                row.subject_key,
+                row.offending_value,
+                row.observed_value,
+                row.expected_value,
+                version.severity,
+            )
+            for row in rows
+        )
+    return evaluated
+
+
+def _explicit_replay(settings: Settings, source_id: int) -> RuleRunResult:
+    replay = cast(Callable[..., RuleRunResult], run_rules)
+    return replay(settings, replay_of=source_id)
 
 
 @pytest.fixture(scope="module")
@@ -180,26 +244,24 @@ def test_replaying_a_run_reproduces_its_finding_set(
     batch = seeded.batch(TARGET_SOURCE, TARGET_PERIOD[0])
     scope_key = f"b:{batch.batch_id}"
 
-    before = {
-        (r.rule_key, r.subject_key)
-        for r in findings_reader.execute(_FINDINGS, {"scope_key": scope_key})
-    }
-    assert before, "the original run produced no findings; nothing to reproduce"
+    persisted_before = _persisted_finding_set(findings_reader, scope_key)
+    evaluated_before = _evaluated_finding_set(findings_reader, original_run)
+    assert evaluated_before, "the original run produced no evaluated findings; nothing to replay"
 
-    replay = run_rules(settings, BatchScope(batch.batch_id), replay_of=original_run)
+    replay = _explicit_replay(settings, original_run)
     assert replay.status == "COMPLETED", replay.status
     assert replay.rule_run_id != original_run, "a replay must be recorded as its own run"
+    assert replay.finding_count == 0, "idempotent replay counts only newly persisted findings"
 
-    after = {
-        (r.rule_key, r.subject_key)
-        for r in findings_reader.execute(_FINDINGS, {"scope_key": scope_key})
-    }
+    evaluated_after = _evaluated_finding_set(findings_reader, replay.rule_run_id)
+    persisted_after = _persisted_finding_set(findings_reader, scope_key)
 
-    assert after == before, (
+    assert evaluated_after == evaluated_before, (
         f"\nreplay changed the finding set for {scope_key}\n"
-        f"  appeared: {sorted(after - before)}\n"
-        f"  vanished: {sorted(before - after)}\n"
+        f"  appeared: {sorted(evaluated_after - evaluated_before, key=repr)}\n"
+        f"  vanished: {sorted(evaluated_before - evaluated_after, key=repr)}\n"
     )
+    assert persisted_after == persisted_before, "replay must not duplicate persisted findings"
 
 
 def test_the_replay_recorded_the_same_world(
@@ -212,7 +274,8 @@ def test_the_replay_recorded_the_same_world(
     """
     runs = findings_reader.execute(
         text(
-            "SELECT rule_run_id, as_of_date, reference_watermark "
+            "SELECT rule_run_id, as_of_date, reference_watermark, session_settings, "
+            "       replay_of_rule_run_id "
             "FROM rule_run WHERE scope_type = 'batch' ORDER BY rule_run_id"
         )
     ).all()
@@ -224,6 +287,8 @@ def test_the_replay_recorded_the_same_world(
 
     assert replay.as_of_date == original.as_of_date
     assert replay.reference_watermark == original.reference_watermark
+    assert replay.session_settings == original.session_settings
+    assert replay.replay_of_rule_run_id == original_run
     assert original.reference_watermark < amendment.batch_id, (
         "the original run's watermark should predate the amendment batch, or the replay is not "
         "reaching back past anything"
@@ -231,7 +296,11 @@ def test_the_replay_recorded_the_same_world(
 
 
 def test_a_fresh_run_is_allowed_to_differ(
-    settings: Settings, seeded: SeedResult, findings_reader: Connection, amendment: Amendment
+    settings: Settings,
+    seeded: SeedResult,
+    findings_reader: Connection,
+    original_run: int,
+    amendment: Amendment,
 ) -> None:
     """Reproducibility is not immutability of the present.
 
@@ -245,4 +314,9 @@ def test_a_fresh_run_is_allowed_to_differ(
 
     assert fresh.reference_watermark >= amendment.batch_id, (
         "a run with no replay must see the delivered world as it is now"
+    )
+    original_evaluated = _evaluated_finding_set(findings_reader, original_run)
+    fresh_evaluated = _evaluated_finding_set(findings_reader, fresh.rule_run_id)
+    assert fresh_evaluated != original_evaluated, (
+        "fresh evaluation must observe the amended world; replay alone preserves the old one"
     )
