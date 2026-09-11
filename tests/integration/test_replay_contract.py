@@ -98,9 +98,10 @@ def replay_case(
 def _run_row(conn: Connection, run_id: int) -> Any:
     return conn.execute(
         text(
-            "SELECT scope_type, batch_id, scope_source_system_id, scope_period, as_of_date, "
-            "reference_watermark, session_settings, status, replay_of_rule_run_id "
-            "FROM rule_run WHERE rule_run_id = :id"
+            "SELECT rr.scope_type, rr.batch_id, rr.scope_source_system_id, rr.scope_period, "
+            "rr.as_of_date, rr.reference_watermark, rr.session_settings, rr.status, "
+            "(to_jsonb(rr) ->> 'replay_of_rule_run_id')::bigint AS replay_of_rule_run_id "
+            "FROM rule_run rr WHERE rr.rule_run_id = :id"
         ),
         {"id": run_id},
     ).one()

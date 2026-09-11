@@ -274,9 +274,10 @@ def test_the_replay_recorded_the_same_world(
     """
     runs = findings_reader.execute(
         text(
-            "SELECT rule_run_id, as_of_date, reference_watermark, session_settings, "
-            "       replay_of_rule_run_id "
-            "FROM rule_run WHERE scope_type = 'batch' ORDER BY rule_run_id"
+            "SELECT rr.rule_run_id, rr.as_of_date, rr.reference_watermark, rr.session_settings, "
+            "       (to_jsonb(rr) ->> 'replay_of_rule_run_id')::bigint "
+            "           AS replay_of_rule_run_id "
+            "FROM rule_run rr WHERE rr.scope_type = 'batch' ORDER BY rr.rule_run_id"
         )
     ).all()
 
