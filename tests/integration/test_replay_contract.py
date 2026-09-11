@@ -208,6 +208,36 @@ def test_replay_copies_complete_context_and_recorded_version_even_when_inactive(
     assert replay_versions[0].finding_count == 0
     assert replay_result.finding_count == 0
 
+    before = findings_reader.execute(text("SELECT count(*) FROM rule_run")).scalar_one()
+    with pytest.raises(_replay_source_error(), match="itself a replay"):
+        _explicit_replay(settings, replay_result.rule_run_id)
+    after = findings_reader.execute(text("SELECT count(*) FROM rule_run")).scalar_one()
+    assert after == before
+
+
+def test_replay_reconstructs_a_source_period_scope_without_caller_input(
+    settings: Settings, findings_reader: Connection, seeded: SeedResult
+) -> None:
+    original_result = runner.run_rules(
+        settings,
+        runner.SourcePeriodScope(TARGET_SOURCE, TARGET_PERIOD[0], TARGET_PERIOD[1]),
+        rule_keys=["FEED-LATE-MISSING"],
+    )
+    replay_result = _explicit_replay(settings, original_result.rule_run_id)
+
+    original = _run_row(findings_reader, original_result.rule_run_id)
+    replay = _run_row(findings_reader, replay_result.rule_run_id)
+
+    assert original.scope_type == "source_period"
+    assert replay.scope_type == original.scope_type
+    assert replay.batch_id is None
+    assert replay.scope_source_system_id == original.scope_source_system_id
+    assert replay.scope_period == original.scope_period
+    assert replay.as_of_date == original.as_of_date
+    assert replay.reference_watermark == original.reference_watermark
+    assert replay.session_settings == original.session_settings
+    assert replay.replay_of_rule_run_id == original_result.rule_run_id
+
 
 def test_fresh_evaluation_uses_the_current_active_version(
     settings: Settings, findings_reader: Connection, replay_case: dict[str, Any]

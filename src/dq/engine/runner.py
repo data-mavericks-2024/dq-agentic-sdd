@@ -32,11 +32,19 @@ from sqlalchemy import Connection, text
 from dq.config.settings import Role, Settings
 from dq.db import engine as db
 from dq.rules.predicates import bound_parameter_names
-from dq.rules.registry import ActiveRuleVersion, active_versions
+from dq.rules.registry import ActiveRuleVersion, active_versions, recorded_versions
 
 
 class ScopeNotFoundError(LookupError):
     """The scope resolves to neither a batch nor a declared feed expectation."""
+
+
+class InvalidRunRequestError(ValueError):
+    """Fresh and replay execution modes were combined or left unspecified."""
+
+
+class ReplaySourceError(ValueError):
+    """The requested source run is absent or is not an original completed run."""
 
 
 # ---------------------------------------------------------------------------
@@ -152,40 +160,122 @@ def _watermark(conn: Connection) -> int:
 
 
 @dataclass(frozen=True, slots=True)
-class PinnedWorld:
-    """The reference world of an earlier run, replayed instead of recomputed.
+class ReplayExecution:
+    """The complete immutable execution context selected by an original run."""
 
-    A re-run that recomputes its own watermark sees whatever has been delivered since, so after a
-    later batch arrives it is evaluating a *different world* — correctly, but not reproducibly.
-    Reproducing a historical run means replaying the parameters it recorded, which is what makes
-    "any historical run can be reproduced" an operation rather than an aspiration (SC-010).
-    """
-
-    as_of_date: date
-    reference_watermark: int
+    resolved: ResolvedScope
+    session_settings: dict[str, str]
+    versions: list[ActiveRuleVersion]
 
 
-def load_pinned_world(conn: Connection, rule_run_id: int) -> PinnedWorld:
-    """Read the reference world a previous run recorded."""
+def _load_replay_execution(conn: Connection, rule_run_id: int) -> ReplayExecution:
     row = conn.execute(
-        text("SELECT as_of_date, reference_watermark FROM rule_run WHERE rule_run_id = :id"),
+        text("""
+            SELECT rr.status, rr.replay_of_rule_run_id, rr.scope_type, rr.batch_id,
+                   rr.scope_source_system_id,
+                   lower(rr.scope_period) AS scope_period_start,
+                   upper(rr.scope_period) AS scope_period_end,
+                   rr.as_of_date, rr.reference_watermark, rr.session_settings,
+                   b.source_system_id AS batch_source_system_id,
+                   lower(b.business_period) AS batch_period_start,
+                   upper(b.business_period) AS batch_period_end,
+                   source.code AS source_system_code
+            FROM rule_run rr
+            LEFT JOIN data_batch b ON b.batch_id = rr.batch_id
+            LEFT JOIN source_system source
+                   ON source.source_system_id = rr.scope_source_system_id
+            WHERE rr.rule_run_id = :id
+        """),
         {"id": rule_run_id},
     ).one_or_none()
     if row is None:
-        raise ScopeNotFoundError(f"No rule_run with rule_run_id={rule_run_id}.")
-    return PinnedWorld(as_of_date=row.as_of_date, reference_watermark=row.reference_watermark)
+        raise ReplaySourceError(f"No rule_run with rule_run_id={rule_run_id}.")
+    if row.replay_of_rule_run_id is not None:
+        raise ReplaySourceError(
+            f"rule_run_id={rule_run_id} is itself a replay; replay the original run instead."
+        )
+    if row.status != "COMPLETED":
+        raise ReplaySourceError(
+            f"rule_run_id={rule_run_id} has status {row.status}; only COMPLETED is replayable."
+        )
+
+    raw_settings = row.session_settings
+    if not isinstance(raw_settings, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in raw_settings.items()
+    ):
+        raise ReplaySourceError(
+            f"rule_run_id={rule_run_id} has invalid persisted session_settings."
+        )
+    session_settings = dict(raw_settings)
+
+    if row.scope_type == "batch":
+        if (
+            row.batch_id is None
+            or row.batch_source_system_id is None
+            or row.batch_period_start is None
+            or row.batch_period_end is None
+        ):
+            raise ReplaySourceError(f"rule_run_id={rule_run_id} has an invalid batch scope.")
+        resolved = ResolvedScope(
+            scope_type="batch",
+            scope_key=f"b:{row.batch_id}",
+            as_of_date=row.as_of_date,
+            reference_watermark=row.reference_watermark,
+            batch_id=row.batch_id,
+            source_system_id=row.batch_source_system_id,
+            period_start=row.batch_period_start,
+            period_end=row.batch_period_end,
+        )
+    elif row.scope_type == "source_period":
+        if (
+            row.scope_source_system_id is None
+            or row.scope_period_start is None
+            or row.scope_period_end is None
+            or row.source_system_code is None
+        ):
+            raise ReplaySourceError(
+                f"rule_run_id={rule_run_id} has an invalid source-period scope."
+            )
+        resolved = ResolvedScope(
+            scope_type="source_period",
+            scope_key=f"sp:{row.source_system_code}:{row.scope_period_start:%Y-%m}",
+            as_of_date=row.as_of_date,
+            reference_watermark=row.reference_watermark,
+            batch_id=None,
+            source_system_id=row.scope_source_system_id,
+            period_start=row.scope_period_start,
+            period_end=row.scope_period_end,
+        )
+    else:
+        raise ReplaySourceError(
+            f"rule_run_id={rule_run_id} has unsupported scope_type={row.scope_type!r}."
+        )
+
+    version_ids = [
+        int(value)
+        for value in conn.execute(
+            text(
+                "SELECT rule_version_id FROM rule_run_rule_version "
+                "WHERE rule_run_id = :id ORDER BY rule_version_id"
+            ),
+            {"id": rule_run_id},
+        ).scalars()
+    ]
+    try:
+        versions = recorded_versions(conn, version_ids)
+    except LookupError as exc:
+        raise ReplaySourceError(f"rule_run_id={rule_run_id}: {exc}") from exc
+    if any(version.subject_type not in resolved.subject_types for version in versions):
+        raise ReplaySourceError(
+            f"rule_run_id={rule_run_id} records a rule version incompatible with its scope."
+        )
+    return ReplayExecution(resolved, session_settings, versions)
 
 
-def resolve_scope(
-    conn: Connection, scope: RunScope, pinned: PinnedWorld | None = None
-) -> ResolvedScope:
-    """Bind ``scope`` to a concrete as-of date and watermark.
-
-    ``pinned`` replaces both with an earlier run's recorded values. The scope still resolves
-    normally — a replay evaluates the same subjects, in the same world, under whichever rule
-    versions are active now.
-    """
-    watermark = pinned.reference_watermark if pinned else _watermark(conn)
+def resolve_scope(conn: Connection, scope: RunScope) -> ResolvedScope:
+    """Bind a fresh evaluation scope to its current as-of date and watermark."""
+    watermark = _watermark(conn)
 
     if isinstance(scope, BatchScope):
         # `lower`/`upper` rather than the range itself: a range object crossing the Python boundary
@@ -204,7 +294,7 @@ def resolve_scope(
         return ResolvedScope(
             scope_type="batch",
             scope_key=f"b:{row.batch_id}",
-            as_of_date=pinned.as_of_date if pinned else _business_end(row.period_end),
+            as_of_date=_business_end(row.period_end),
             reference_watermark=watermark,
             batch_id=row.batch_id,
             source_system_id=row.source_system_id,
@@ -222,7 +312,7 @@ def resolve_scope(
     return ResolvedScope(
         scope_type="source_period",
         scope_key=f"sp:{scope.source_system_code}:{scope.period_start:%Y-%m}",
-        as_of_date=pinned.as_of_date if pinned else _business_end(scope.period_end),
+        as_of_date=_business_end(scope.period_end),
         reference_watermark=watermark,
         batch_id=None,
         source_system_id=source_id,
@@ -339,7 +429,10 @@ def _evaluate_one(
 
 
 def _open_run(
-    conn: Connection, resolved: ResolvedScope, session_settings: dict[str, str]
+    conn: Connection,
+    resolved: ResolvedScope,
+    session_settings: dict[str, str],
+    replay_of: int | None,
 ) -> tuple[int, uuid.UUID]:
     correlation_id = uuid.uuid4()
     import json
@@ -350,16 +443,17 @@ def _open_run(
         # is itself NULL, so a batch scope needs no branch here — the CHECK constraint on rule_run
         # then verifies that a batch scope carries no period and a period scope does.
         text("""
-            INSERT INTO rule_run (correlation_id, scope_type, batch_id, scope_source_system_id,
-                                  scope_period, as_of_date, reference_watermark, session_settings,
-                                  status)
-            VALUES (:corr, :st, :bid, :ssid,
+            INSERT INTO rule_run (correlation_id, replay_of_rule_run_id, scope_type, batch_id,
+                                  scope_source_system_id, scope_period, as_of_date,
+                                  reference_watermark, session_settings, status)
+            VALUES (:corr, :replay_of, :st, :bid, :ssid,
                     daterange(:period_start, :period_end, '[)'),
                     :as_of, :wm, CAST(:settings AS jsonb), 'RUNNING')
             RETURNING rule_run_id
         """),
         {
             "corr": correlation_id,
+            "replay_of": replay_of,
             "st": resolved.scope_type,
             "bid": resolved.batch_id,
             "ssid": resolved.source_system_id if is_period_scope else None,
@@ -385,7 +479,7 @@ def _close_run(conn: Connection, run_id: int, status: str, detail: str | None = 
 
 def run_rules(
     settings: Settings,
-    scope: RunScope,
+    scope: RunScope | None = None,
     *,
     rule_keys: list[str] | None = None,
     replay_of: int | None = None,
@@ -396,12 +490,18 @@ def run_rules(
     failure still leaves a ``rule_run`` row explaining itself. A run recorded only on success is a
     run that cannot report its own failure.
 
-    ``replay_of`` reuses an earlier run's ``as_of_date`` and ``reference_watermark`` instead of
-    computing fresh ones. Without it a re-run cannot reproduce anything: it recomputes the watermark
-    and therefore sees whatever has been delivered since — correct behaviour, but a different world.
-    Replay is what turns "any historical run can be reproduced" (SC-010) from a property of the
-    schema into an operation someone can actually perform.
+    Fresh evaluation requires ``scope`` and selects current active versions. ``replay_of`` is a
+    distinct mode: it accepts no scope or rule filter and reuses the completed original run's scope,
+    business and delivery boundaries, complete session settings, and exact recorded rule versions.
     """
+    if scope is None and replay_of is None:
+        raise InvalidRunRequestError("provide a scope for fresh evaluation or replay_of for replay")
+    if scope is not None and replay_of is not None:
+        raise InvalidRunRequestError("scope and replay_of are mutually exclusive")
+    if replay_of is not None and rule_keys:
+        raise InvalidRunRequestError("replay_of cannot be combined with rule_keys")
+
+    replay: ReplayExecution | None = None
     session_settings = db.session_settings_for(settings.schema_prefix)
 
     with db.connection(settings, Role.ENGINE) as conn:
@@ -412,18 +512,34 @@ def run_rules(
         # table name in it fails to resolve.
         with conn.begin():
             db.pin_session(conn, settings.schema_prefix)
-            pinned = load_pinned_world(conn, replay_of) if replay_of is not None else None
-            resolved = resolve_scope(conn, scope, pinned)
+            if replay_of is not None:
+                replay = _load_replay_execution(conn, replay_of)
+                resolved = replay.resolved
+                session_settings = replay.session_settings
+                try:
+                    db.pin_recorded_session(conn, session_settings)
+                except ValueError as exc:
+                    raise ReplaySourceError(
+                        f"rule_run_id={replay_of} has invalid persisted session_settings: {exc}"
+                    ) from exc
+            else:
+                if scope is None:
+                    raise InvalidRunRequestError("fresh evaluation requires a scope")
+                resolved = resolve_scope(conn, scope)
 
         with conn.begin():
-            db.pin_session(conn, settings.schema_prefix)
-            run_id, correlation_id = _open_run(conn, resolved, session_settings)
+            db.pin_recorded_session(conn, session_settings)
+            run_id, correlation_id = _open_run(conn, resolved, session_settings, replay_of)
 
         outcomes: list[RuleOutcome] = []
         try:
             with conn.begin():
-                db.pin_session(conn, settings.schema_prefix)
-                versions = active_versions(conn, resolved.subject_types, rule_keys)
+                db.pin_recorded_session(conn, session_settings)
+                versions = (
+                    replay.versions
+                    if replay is not None
+                    else active_versions(conn, resolved.subject_types, rule_keys)
+                )
                 for version in versions:
                     outcome = _evaluate_one(conn, run_id, version, resolved)
                     outcomes.append(outcome)
@@ -443,7 +559,7 @@ def run_rules(
                     )
         except Exception as exc:
             with conn.begin():
-                db.pin_session(conn, settings.schema_prefix)
+                db.pin_recorded_session(conn, session_settings)
                 _close_run(conn, run_id, "FAILED", f"{type(exc).__name__}: {exc}")
             raise
 
@@ -457,7 +573,7 @@ def run_rules(
             else None
         )
         with conn.begin():
-            db.pin_session(conn, settings.schema_prefix)
+            db.pin_recorded_session(conn, session_settings)
             _close_run(conn, run_id, status, detail)
 
     return RuleRunResult(

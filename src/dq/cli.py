@@ -19,7 +19,15 @@ import click
 
 from dq.config.settings import Role, Settings, load_settings
 from dq.db import engine as db
-from dq.engine.runner import BatchScope, RunScope, ScopeNotFoundError, SourcePeriodScope, run_rules
+from dq.engine.runner import (
+    BatchScope,
+    InvalidRunRequestError,
+    ReplaySourceError,
+    RunScope,
+    ScopeNotFoundError,
+    SourcePeriodScope,
+    run_rules,
+)
 from dq.rules.definition import LIBRARY_DIR, load_definition, load_library
 from dq.rules.predicates import RuleDefinitionError
 from dq.rules.registry import register, set_active
@@ -140,7 +148,7 @@ def rules_activate(rule_key: str) -> None:
     "--replay-of",
     type=int,
     metavar="RUN_ID",
-    help="Reuse an earlier run's as-of date and watermark instead of computing fresh ones.",
+    help="Replay a completed original run's exact persisted execution context.",
 )
 def run_rules_cmd(
     batch_id: int | None,
@@ -158,24 +166,28 @@ def run_rules_cmd(
     evaluates whatever has been delivered since — correct, but a different world. Replay is what
     makes "why did this number change?" answerable months later.
     """
-    if batch_id is not None and (source or period):
-        raise click.UsageError("--batch-id and --source/--period are alternatives")
-    if batch_id is None and not (source and period):
-        raise click.UsageError("give --batch-id, or both --source and --period")
+    scope: RunScope | None = None
+    if replay_of is not None:
+        if batch_id is not None or source is not None or period is not None or rule_keys:
+            raise click.UsageError(
+                "--replay-of cannot be combined with --batch-id, --source/--period, or --rule"
+            )
+    else:
+        if batch_id is not None and (source or period):
+            raise click.UsageError("--batch-id and --source/--period are alternatives")
+        if batch_id is None and not (source and period):
+            raise click.UsageError("give --batch-id, or both --source and --period")
 
-    scope: RunScope
-    if batch_id is not None:
-        scope = BatchScope(batch_id)
-    elif source and period:
-        start, end = _parse_period(period)
-        scope = SourcePeriodScope(source, start, end)
-    else:  # pragma: no cover — the usage checks above make this unreachable
-        raise click.UsageError("give --batch-id, or both --source and --period")
+        if batch_id is not None:
+            scope = BatchScope(batch_id)
+        elif source and period:
+            start, end = _parse_period(period)
+            scope = SourcePeriodScope(source, start, end)
 
     settings = _settings()
     try:
         result = run_rules(settings, scope, rule_keys=list(rule_keys) or None, replay_of=replay_of)
-    except ScopeNotFoundError as exc:
+    except (InvalidRunRequestError, ReplaySourceError, ScopeNotFoundError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"run              : {result.rule_run_id}  ({result.correlation_id})")

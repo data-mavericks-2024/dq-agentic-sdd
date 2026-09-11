@@ -12,6 +12,7 @@ not a control.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -88,6 +89,16 @@ WHERE  r.is_active
   AND  rv.subject_type = ANY(:subject_types)
   AND  (CAST(:rule_keys AS text[]) IS NULL OR r.rule_key = ANY(:rule_keys))
 ORDER  BY r.rule_key
+""")
+
+_RECORDED_VERSIONS = text("""
+SELECT r.rule_id, r.rule_key, r.domain, r.dimension,
+       rv.rule_version_id, rv.version_no, rv.severity, rv.subject_type,
+       rv.predicate_sql, rv.parameters
+FROM   rule_version rv
+JOIN   rule r ON r.rule_id = rv.rule_id
+WHERE  rv.rule_version_id = ANY(CAST(:version_ids AS bigint[]))
+ORDER  BY r.rule_key, rv.rule_version_id
 """)
 
 
@@ -199,6 +210,37 @@ def active_versions(
             parameters=r.parameters or {},
         )
         for r in rows
+    ]
+
+
+def recorded_versions(conn: Connection, rule_version_ids: Sequence[int]) -> list[ActiveRuleVersion]:
+    """Load exact historical versions without activation or latest-version filtering."""
+    requested = list(rule_version_ids)
+    if not requested:
+        return []
+    if len(requested) != len(set(requested)):
+        raise LookupError("recorded replay version ids contain duplicates")
+
+    rows = conn.execute(_RECORDED_VERSIONS, {"version_ids": requested}).all()
+    found = {int(row.rule_version_id) for row in rows}
+    missing = sorted(set(requested) - found)
+    if missing:
+        raise LookupError(f"recorded rule versions no longer exist: {missing}")
+
+    return [
+        ActiveRuleVersion(
+            rule_id=row.rule_id,
+            rule_key=row.rule_key,
+            rule_version_id=row.rule_version_id,
+            version_no=row.version_no,
+            domain=row.domain,
+            dimension=row.dimension,
+            severity=row.severity,
+            subject_type=row.subject_type,
+            predicate_sql=row.predicate_sql,
+            parameters=row.parameters or {},
+        )
+        for row in rows
     ]
 
 

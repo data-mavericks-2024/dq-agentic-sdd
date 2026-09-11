@@ -154,6 +154,12 @@ rule_run = Table(
     "rule_run",
     metadata,
     Column("rule_run_id", BigInteger, Identity(always=False), primary_key=True),
+    Column(
+        "replay_of_rule_run_id",
+        BigInteger,
+        ForeignKey(f"{_S}.rule_run.rule_run_id", ondelete="RESTRICT"),
+        nullable=True,
+    ),
     # Constitution principle V. Features 2+ join their audit rows on this.
     Column("correlation_id", UUID(as_uuid=True), nullable=False),
     Column("scope_type", Text, nullable=False),

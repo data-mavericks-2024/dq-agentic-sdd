@@ -21,7 +21,7 @@ them to the client's default makes a rule's verdict depend on who ran it:
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Final
 
@@ -37,6 +37,10 @@ SESSION_SETTINGS: Final[dict[str, str]] = {
     "DateStyle": "ISO, YMD",
     "statement_timeout": "15min",
 }
+
+_PINNED_SETTING_NAMES: Final[frozenset[str]] = frozenset(
+    {"TimeZone", "DateStyle", "search_path", "statement_timeout"}
+)
 
 
 class RoleAssertionError(RuntimeError):
@@ -116,21 +120,32 @@ def connection(settings: Settings, role: Role) -> Iterator[Connection]:
         engine.dispose()
 
 
+def pin_recorded_session(conn: Connection, session_settings: Mapping[str, str]) -> dict[str, str]:
+    """Apply one complete, previously recorded execution environment."""
+    pinned = dict(session_settings)
+    if set(pinned) != _PINNED_SETTING_NAMES or any(
+        not isinstance(value, str) or not value for value in pinned.values()
+    ):
+        raise ValueError(
+            "session settings must contain exactly TimeZone, DateStyle, search_path, and "
+            "statement_timeout with non-empty string values"
+        )
+
+    for key in ("TimeZone", "DateStyle", "search_path", "statement_timeout"):
+        conn.execute(
+            text("SELECT set_config(:key, :value, true)"),
+            {"key": key, "value": pinned[key]},
+        )
+    return pinned
+
+
 def pin_session(conn: Connection, prefix: str = "") -> dict[str, str]:
     """Issue the four ``SET LOCAL`` settings and return what was pinned.
 
     ``SET LOCAL`` is transaction-scoped, so this must run inside the transaction that will execute
     the predicates. The returned dict is what belongs in ``rule_run.session_settings``.
     """
-    pinned = dict(SESSION_SETTINGS)
-    pinned["search_path"] = schemas.search_path(prefix)
-    for key, value in pinned.items():
-        # `set_config(name, value, is_local)` rather than `SET LOCAL`. SET is a *utility* statement,
-        # so PostgreSQL will not accept a bind parameter in it — `SET LOCAL TimeZone = $1` is a
-        # syntax error. set_config is an ordinary function, takes both sides as parameters, and with
-        # is_local = true has exactly the transaction-scoped effect SET LOCAL would have had.
-        conn.execute(text("SELECT set_config(:key, :value, true)"), {"key": key, "value": value})
-    return pinned
+    return pin_recorded_session(conn, session_settings_for(prefix))
 
 
 @contextmanager
