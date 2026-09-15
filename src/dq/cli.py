@@ -28,6 +28,7 @@ from dq.engine.runner import (
     SourcePeriodScope,
     run_rules,
 )
+from dq.engine.summary import query_findings, summarise_scope
 from dq.rules.definition import LIBRARY_DIR, load_definition, load_library
 from dq.rules.predicates import RuleDefinitionError
 from dq.rules.registry import register, set_active
@@ -243,6 +244,107 @@ def run_rules_cmd(
     # A partially-evaluated scope must not look clean to a script either.
     if result.errored:
         sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# findings / summarise
+# ---------------------------------------------------------------------------
+
+
+@main.command("findings")
+@click.option("--domain")
+@click.option("--rule", "rule_key", help="Rule key, e.g. HCP-NPI-FORMAT.")
+@click.option("--severity")
+@click.option("--batch-id", type=int)
+@click.option("--since", help="ISO datetime; findings detected at or after this instant.")
+@click.option("--until", help="ISO datetime; findings detected before this instant.")
+def findings_cmd(
+    domain: str | None,
+    rule_key: str | None,
+    severity: str | None,
+    batch_id: int | None,
+    since: str | None,
+    until: str | None,
+) -> None:
+    """Query findings, filtered by domain, rule, severity, batch, and time window (FR-023).
+
+    Every filter given narrows the result; none given returns everything. Connects as
+    `dq_readonly` — the same role Feature 3's investigation agents will use.
+    """
+    try:
+        detected_from = datetime.fromisoformat(since) if since else None
+        detected_to = datetime.fromisoformat(until) if until else None
+    except ValueError as exc:
+        raise click.BadParameter(f"--since/--until must be ISO datetimes: {exc}") from exc
+
+    settings = _settings()
+    with db.connect(settings, Role.READONLY) as conn:
+        results = query_findings(
+            conn,
+            domain=domain,
+            rule_key=rule_key,
+            severity=severity,
+            batch_id=batch_id,
+            detected_from=detected_from,
+            detected_to=detected_to,
+        )
+
+    if not results:
+        click.echo("no findings match those filters")
+        return
+    for f in results:
+        click.echo(
+            f"{f.finding_id:<8} {f.rule_key:<22} v{f.version_no:<3} {f.severity:<8} "
+            f"{f.subject_type:<8} {f.subject_key:<24} "
+            f"{(f.offending_value or ''):<20} {f.detected_at.isoformat()}"
+        )
+
+
+@main.command("summarise")
+@click.option("--batch-id", type=int, help="Summarise one arrival.")
+@click.option("--source", help="Source system code, with --period.")
+@click.option("--period", help="Business period as YYYY-MM, with --source.")
+def summarise_cmd(batch_id: int | None, source: str | None, period: str | None) -> None:
+    """Per-scope failure counts by domain, rule, and severity (FR-024).
+
+    A batch summary also includes any `source_period` findings — a late or missing feed — covering
+    the same source and period, so a batch that arrived cleanly does not hide a sibling delivery
+    that never showed up (FR-024a).
+    """
+    if batch_id is not None and (source or period):
+        raise click.UsageError("--batch-id and --source/--period are alternatives")
+    if batch_id is None and not (source and period):
+        raise click.UsageError("give --batch-id, or both --source and --period")
+
+    scope: RunScope
+    if batch_id is not None:
+        scope = BatchScope(batch_id)
+    else:
+        start, end = _parse_period(str(period))
+        scope = SourcePeriodScope(str(source), start, end)
+
+    settings = _settings()
+    try:
+        with db.connect(settings, Role.READONLY) as conn:
+            summary = summarise_scope(conn, scope)
+    except ScopeNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"scope            : {', '.join(summary.scope_keys)}")
+    click.echo(f"total findings   : {summary.total_findings}")
+    click.echo("by domain:")
+    for domain, count in sorted(summary.by_domain.items()):
+        click.echo(f"  {domain:<22} {count}")
+    click.echo("by rule:")
+    for rc in summary.by_rule:
+        click.echo(f"  {rc.rule_key:<22} {rc.domain:<22} {rc.finding_count}")
+    click.echo("by severity:")
+    for severity, count in sorted(summary.by_severity.items()):
+        click.echo(f"  {severity:<10} {count}")
+    if summary.errored_rules:
+        click.echo("rules errored:")
+        for er in summary.errored_rules:
+            click.echo(f"  {er.rule_key:<22} v{er.version_no}  {er.error_detail or ''}")
 
 
 if __name__ == "__main__":
