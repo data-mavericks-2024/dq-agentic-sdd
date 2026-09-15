@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DQ Forward | Nightly Commercial Load</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/responsive.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">DQ</span><div><strong>DQ Forward</strong><small>Commercial data assurance</small></div></div>
+      <p class="nav-label">WORKSPACE</p>
+      <nav aria-label="Workspace">
+        <button class="nav-item active" data-view="command">Command center</button>
+        <button class="nav-item" data-view="findings">Findings <span id="nav-finding-count">0</span></button>
+        <button class="nav-item" data-view="rules">Rule library</button>
+        <button class="nav-item" data-view="evidence">Run evidence</button>
+        <button class="nav-item" data-view="governance">Governance</button>
+      </nav>
+      <div class="sidebar-foot"><span>Feature 001</span><strong>76 / 96</strong><div class="progress"><span></span></div></div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <span>Commercial Operations / Data Quality Foundation</span>
+        <div class="top-actions"><span class="demo-badge">Live synthetic demo data</span><span class="health"><i></i><span id="health-text">Connecting</span></span></div>
+      </header>
+
+      <div class="content">
+        <section class="view" id="view-command">
+          <div class="heading"><div><h1>Data quality command center</h1><p>One governed view of nightly execution, persisted evidence, and operational risk.</p></div><button class="secondary" id="refresh">Refresh</button></div>
+
+          <section class="run-controls" aria-label="Nightly load controls">
+            <label>Demo scenario<input value="Nightly commercial load" readonly></label>
+            <label>Business period<select id="period-select"></select></label>
+            <label>Source<input value="All commercial sources" readonly></label>
+            <button class="primary" id="run-rules"><span class="play">&#9654;</span> Run deterministic rules</button>
+          </section>
+
+          <div class="notice" id="notice" hidden></div>
+
+          <section class="metrics" aria-label="Execution metrics">
+            <article><small>RECORDS EVALUATED</small><strong id="records">-</strong><span id="batch-note">Immutable batch scope</span></article>
+            <article><small>PERSISTED FINDINGS</small><strong id="finding-count">-</strong><span id="finding-note">Across the nightly period</span></article>
+            <article><small>RULES EVALUATED</small><strong id="rule-count">-</strong><span id="rule-note">Version-attributed SQL rules</span></article>
+            <article><small>RUN DURATION</small><strong id="duration">-</strong><span id="run-status">Awaiting evidence</span></article>
+          </section>
+
+          <div class="command-grid">
+            <section class="panel signal-panel"><div class="panel-head"><div><h2>Operational signal</h2><p>Findings grouped by deterministic quality dimension</p></div><button class="text-button" data-jump="findings">View findings</button></div><div class="panel-body" id="dimension-list"></div></section>
+            <section class="panel"><div class="panel-head"><div><h2>Latest activity</h2><p>Persisted run milestones</p></div></div><div class="panel-body activity" id="activity-list"></div></section>
+          </div>
+
+          <section class="evidence-strip">
+            <div><small>LATEST RUN SET</small><strong id="latest-run">Not run</strong></div>
+            <div><small>REFERENCE WATERMARK</small><strong id="watermark">-</strong></div>
+            <div><small>MIGRATION HEAD</small><strong>0013</strong></div>
+            <div><small>EVIDENCE STATUS</small><strong id="evidence-status">Awaiting first run</strong></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-findings" hidden>
+          <div class="heading"><div><h1>Findings worklist</h1><p>Every result retains the failing subject, rule version, owner, and observed evidence.</p></div><span class="review-badge">Human review required</span></div>
+          <section class="filter-bar">
+            <label>Search<input id="finding-search" placeholder="Subject, rule, owner"></label>
+            <label>Domain<select id="domain-filter"><option value="all">All domains</option></select></label>
+            <label>Severity<select id="severity-filter"><option value="all">All severities</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select></label>
+            <span><strong id="visible-findings">0</strong> visible</span>
+          </section>
+          <section class="panel table-panel"><table><thead><tr><th>Subject</th><th>Domain</th><th>Rule</th><th>Severity</th><th>Owner</th><th>Detected</th></tr></thead><tbody id="findings-table"></tbody></table></section>
+        </section>
+
+        <section class="view" id="view-rules" hidden>
+          <div class="heading"><div><h1>Rule library</h1><p>Active, versioned SQL definitions that alone determine pass or fail.</p></div><span class="enforced-badge">Deterministic control</span></div>
+          <div class="rule-grid" id="rule-grid"></div>
+        </section>
+
+        <section class="view" id="view-evidence" hidden>
+          <div class="heading"><div><h1>Run evidence</h1><p>Each scoped evaluation records its exact watermark, rule outcomes, and correlation identity.</p></div><span class="enforced-badge">Replayable context</span></div>
+          <section class="panel table-panel"><table><thead><tr><th>Run</th><th>Scope</th><th>Rules</th><th>New findings</th><th>Watermark</th><th>Status</th><th>Duration</th></tr></thead><tbody id="runs-table"></tbody></table></section>
+          <section class="panel evidence-chain"><div class="panel-head"><div><h2>Evidence chain</h2><p>What this nightly demo proves end to end</p></div></div><div class="chain"><div><b>1</b><strong>Immutable source batch</strong><span>Arrival and business period recorded</span></div><div><b>2</b><strong>Versioned SQL evaluation</strong><span>Fixed predicates decide failures</span></div><div><b>3</b><strong>Attributed findings</strong><span>Subject, owner, severity, rule version</span></div><div><b>4</b><strong>Historical replay</strong><span>Same recorded world can be reconstructed</span></div></div></section>
+        </section>
+
+        <section class="view" id="view-governance" hidden>
+          <div class="heading"><div><h1>Governance by construction</h1><p>Controls live in database privileges and backend boundaries, not presentation text.</p></div><span class="enforced-badge">Constitution-led design</span></div>
+          <div class="governance-grid">
+            <section class="panel"><div class="panel-head"><div><h2>Enforced in this demo</h2><p>Structural controls already present</p></div></div><div class="guardrails"><article><strong>Determinism first</strong><p>Only versioned PostgreSQL rules decide whether a record fails.</p></article><article><strong>No browser credential</strong><p>The UI calls a same-origin backend and never connects directly to Supabase.</p></article><article><strong>Least privilege</strong><p>Reads use dq_readonly. Execution uses the existing dq_engine path.</p></article><article><strong>Full attribution</strong><p>Findings retain scope, rule version, severity, owner, and run identity.</p></article></div></section>
+            <section class="panel"><div class="panel-head"><div><h2>Explicitly outside this slice</h2><p>Future features, shown without simulated actions</p></div></div><div class="guardrails future"><article><strong>Agent investigation</strong><p>No model call occurs in this demo. Feature 3 adds evidence-bound reasoning.</p></article><article><strong>Correction proposal</strong><p>No correction is generated or written to curated data.</p></article><article><strong>Human approval and publish</strong><p>Feature 6 adds the durable approval gate and governed publish API.</p></article></div></section>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="overlay" id="detail-overlay" hidden>
+    <aside class="drawer"><button class="close" id="close-detail" aria-label="Close">&times;</button><span class="severity" id="detail-severity"></span><h2 id="detail-rule"></h2><p class="muted" id="detail-id"></p><dl id="detail-grid"></dl><section class="evidence-box"><small>OBSERVED EVIDENCE</small><code id="detail-evidence"></code></section><section class="boundary"><h3>Decision boundary</h3><p>The SQL rule determines failure status. This demo does not alter curated data or approve corrections.</p></section></aside>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

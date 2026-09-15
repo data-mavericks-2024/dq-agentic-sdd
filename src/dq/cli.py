@@ -135,6 +135,40 @@ def rules_activate(rule_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# management demo
+# ---------------------------------------------------------------------------
+
+
+@main.group("demo")
+def demo_group() -> None:
+    """Prepare and serve the governed nightly-load management demo."""
+
+
+@demo_group.command("prepare")
+def demo_prepare() -> None:
+    """Register rules, seed an empty database, and run the latest nightly period."""
+    from dq.demo.service import prepare
+
+    state = prepare(_settings())
+    click.echo(f"period           : {state.period}")
+    click.echo(f"batches          : {len(state.batches)}")
+    click.echo(f"records          : {state.records_evaluated}")
+    click.echo(f"persisted findings: {state.findings_count}")
+    click.echo(f"latest new findings: {state.new_findings}")
+    click.echo(f"status           : {state.run_status}")
+
+
+@demo_group.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8000, show_default=True, type=click.IntRange(1, 65535))
+def demo_serve(host: str, port: int) -> None:
+    """Serve the UI and constrained same-origin API."""
+    from dq.demo.server import serve
+
+    serve(host=host, port=port)
+
+
+# ---------------------------------------------------------------------------
 # run-rules
 # ---------------------------------------------------------------------------
 
