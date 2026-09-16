@@ -28,6 +28,20 @@ Ships with seeded synthetic data containing deliberately injected defects of eve
 **Out of scope.** Any AI agent. Any model call. Any remediation or correction. Any user interface.
 Any HTTP API. Issue clustering (findings remain individual). Impact assessment.
 
+**One named exception: the demo console (`src/dq/demo/`).** It is a user interface and an HTTP API,
+and so it is a documented excursion from the two exclusions above rather than a quiet one. It exists
+because Feature 1's value is otherwise unshowable to anyone who does not read SQL. Its boundaries,
+which are what keep the excursion narrow:
+
+- Read-only. It connects as `dq_readonly` for every query, and its one state-changing route calls
+  the same `run_rules` every other caller uses — as `dq_engine`, writing findings and nothing else.
+- Localhost only, served by the standard library, with a static allowlist of four assets and a
+  same-origin action header on the write route. It holds no credential of its own.
+- **It is not the Feature 7 steward console and must not become it.** It gates no approval and makes
+  no trust decision, so constitution XI does not yet bind it. The moment it needs to — the moment an
+  approval or a correction can be triggered from a screen — that work belongs in Feature 6/7 behind
+  a server-side API that re-validates, not in this surface.
+
 **User-visible outcome.** A data engineer can register a rule and run it against a batch. A data
 steward can query findings by domain, rule, severity, batch, and time window, and read a per-batch
 summary of failures. Against the seeded dataset, a full run detects exactly the injected defects

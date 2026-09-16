@@ -55,6 +55,13 @@ step with the data.
 Three periods are seeded because FR-022 needs a prior period to compare against and FR-021b needs a
 period where an expected feed is absent. One batch cannot exercise either.
 
+**`--periods` states what the invocation delivers; it does not parameterise the generator.** The
+shape is fixed — three consecutive periods across two sources — so `--periods 3` is the only value a
+fresh seed accepts, and `--periods 1` the only value `--amend-master` accepts. Any other value is
+rejected rather than silently seeding something other than what the flag says. A genuinely variable
+period count would change which period is the target, which feed is absent, and what the expected
+finding set is; that is a generator redesign, not a flag.
+
 ## Scenario 2 — Re-running changes nothing (SC-003, FR-011)
 
 ```powershell

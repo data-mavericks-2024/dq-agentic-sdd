@@ -35,6 +35,28 @@ review of the plan and are corrected here rather than worked around in design.
   evaluation joining master data that grows over time, which would have made re-evaluating a
   historical period produce different answers — silently contradicting FR-011 and SC-003.
 
+### Session 2026-09-16 — amendment arising from implementation
+
+- **FR-022 — "period-over-period" needs a definition of the prior period, and the grain it compares
+  at.** The original text said only "period-over-period volume deviation beyond a threshold",
+  leaving two things unstated that turned out to matter.
+
+  *Which prior period.* The implementation compares against a window of **the scope period's own
+  length, immediately preceding it**. For calendar months of unequal length that is deliberately
+  *not* the previous calendar month: a September scope (30 days) compares against 2 August – 1
+  September, not 1 – 31 August. The alternative — resolving the actual preceding calendar period —
+  would need a period catalogue the feature does not have, and would make a weekly or daily scope
+  need separate configuration. The cost is that a transaction dated on the prior period's first day
+  falls outside the comparison. Accepted, and documented here rather than left for a reader to
+  rediscover from the SQL.
+
+  *At what grain.* `(product_key, territory_code)`, not territory alone. A territory-level aggregate
+  lets one product's movement mask or manufacture another's, and makes the "new product with no
+  baseline" edge case unrepresentable — the new product's volume simply joins the territory total.
+  The finer grain also makes the window choice above materially visible, which is how it was found:
+  losing one boundary-day transaction is immaterial against a territory total and a fifth of a
+  single product's baseline.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Steward sees exactly what failed (Priority: P1)

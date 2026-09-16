@@ -126,6 +126,16 @@ tests run against the same database as dev. Isolation is by schema, and it has t
   (`-m golden`) so the default test command stays fast and free.
 - Every test crosses the network to Singapore. Expect this to dominate suite runtime.
 
+**A test that registers its own rule must live in a file sorting after `test_golden_findings.py`.**
+That file's SC-001 check is an unscoped, whole-table set equality: every finding row existing when
+it runs is either expected or a false positive, with no third option. All integration tests share
+one schema for the whole pytest session, and `finding` and `rule_version` are immutable by trigger —
+so a purpose-built rule's findings cannot be cleaned up, only *not yet created*. Deactivating the
+rule on teardown does not help; by then the rows exist. Only collection order does, and pytest
+collects alphabetically. `test_rule_versioning.py` and `test_summary_version_dedup.py` are named for
+this reason, not by accident. A test that merely *reads* findings is unaffected and can be named
+anything.
+
 Free-tier projects pause after roughly a week of inactivity. A sudden connection failure after a
 quiet week is usually a paused project, not a broken config — check the dashboard first.
 

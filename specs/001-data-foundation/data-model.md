@@ -399,7 +399,7 @@ PK `(rule_run_id, rule_version_id)`.
 | `batch_id` | `bigint` FK **NULL** | null for aggregate subjects |
 | `scope_key` | `text` NOT NULL | `b:<batch_id>` or `sp:<source_code>:<period>` — never null |
 | `subject_type` | `text` NOT NULL | `record` / `batch` / `source_period` |
-| `subject_key` | `text` NOT NULL | |
+| `subject_key` | `text` NOT NULL | Shape is per rule family — see below |
 | `offending_value` | `text` NULL | |
 | `observed_value` | `text` NULL | |
 | `expected_value` | `text` NULL | |
@@ -422,6 +422,26 @@ is non-null for every subject type, so idempotency holds uniformly.
 
 The second `CHECK` gives SC-002 a mechanism: every record-subject finding carries its offending
 value or the insert fails.
+
+**`subject_key` shapes, per rule family.** The engine never parses this value — it is opaque to
+`run_rules` and unique only within `(rule_version_id, scope_key)`. But it is the identity a *reader*
+joins on, so the shape each family emits is part of the contract rather than an implementation
+detail, and changing one is a rule-version change:
+
+| Family | `subject_type` | `subject_key` | Example |
+|---|---|---|---|
+| `HCP-*` | `record` | `hcp_id` | `88213` |
+| `SALES-*` | `record` | `txn_id` | `771204` |
+| `ALIGN-OVERLAP-GAP` | `record` | `alignment_id` | `4471` |
+| `FEED-LATE-MISSING` | `source_period` | `<source_code>:<period_start>` | `IQVIA_DDD:2026-09-01` |
+| `VOL-DEVIATION` | `source_period` | `<territory_code>:<product_key>` | `T1-02:PRD-1-000` |
+
+`VOL-DEVIATION` carries a compound key because its grain is `(product_key, territory_code)`, not
+territory alone — a new product must not be able to manufacture or mask a deviation in a territory's
+unrelated existing business (spec Edge Cases). Note that both `source_period` families are keyed on
+different things from each other: one identifies the delivery that did not arrive, the other the
+product-and-territory pair whose volume moved. A consumer that assumes `source_period` implies a
+feed identity will misread the second.
 
 `finding` rejects `UPDATE` and `DELETE` by trigger. It is the audit-bearing table; revision 1
 protected `data_batch` and left this one mutable.
