@@ -93,4 +93,5 @@ def test_two_rules_flagging_the_same_subject_both_count() -> None:
     by_domain, by_rule, _ = _aggregate(rows)
 
     assert by_domain == {"HCP": 2}
-    assert {rc.finding_count for rc in by_rule} == {1, 1}
+    assert len(by_rule) == 2
+    assert all(rc.finding_count == 1 for rc in by_rule)
