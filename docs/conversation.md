@@ -1023,3 +1023,140 @@ uv run pytest                 # 178 pass
 uv run pytest -m volume       # 2 pass, ~110s
 uv run alembic upgrade head   # at 0009
 ```
+
+## Session 7 — 2026-09-16 — `/speckit-implement`, Phase 6 (T065–T070) and Phase 7 (T071–T089)
+
+**Result: all 96 tasks complete. 0 remaining.** 286 tests pass (unit, contract, integration), mypy
+strict clean across every source file, ruff clean. Migrations at `0013` (head, unchanged this
+session). Feature 1 is done.
+
+### Phase 6 — the findings query API (T065–T070)
+
+`src/dq/engine/summary.py` is new: `query_findings` (five filters, any combination, joined through
+`finding` → `rule_version` → `rule` so a caller never does a second lookup for severity or
+ownership) and `summarise_scope`/`summarise_batch` (grouped by domain, by rule, by severity, over
+**distinct `(rule_id, subject_key)` pairs** rather than raw finding rows — a threshold change
+appends a `rule_version`, and counting raw rows would double a real problem into "twice as many
+problems" the moment a rule is re-versioned). `dq findings` and `dq summarise` expose both over the
+CLI, connecting as `dq_readonly` — the same role Feature 3's investigation agents will use, so if a
+query works here, the grant matrix is proven sufficient rather than assumed so.
+
+A batch summary also pulls in the matching `sp:<source>:<period>` scope (FR-024a): a batch that
+arrived cleanly can still sit inside a period a sibling delivery never showed up for, and summing
+only the batch's own scope key would hide exactly the failure least likely to be noticed any other
+way.
+
+**One real bug, found by running against the hosted database rather than reasoning about it.** The
+first version of this work registered a purpose-built throwaway rule in a file
+(`test_batch_summary.py`) that sorted alphabetically *before* `test_golden_findings.py`. Its findings
+leaked into that file's unscoped, whole-table SC-001 equality check — exactly the fragility
+`test_rule_versioning.py`'s own docstring already named ("today that file happens to run first
+alphabetically — relying on that would make the golden test's correctness depend on a filename").
+Split into `test_summary_version_dedup.py`, named to sort safely after it. The lesson generalizes:
+any future purpose-built test rule needs a filename that sorts after `test_golden_findings.py`, not
+merely a teardown that deactivates it — deactivation stops future evaluation, it does not un-happen
+rows already inserted before the golden check runs.
+
+### Phase 7 — edge cases and polish (T071–T089)
+
+- **T082/T083 — `dq seed --periods` / `--amend-master`, and a real clean-world bug.**
+  `amend_master` took an in-process `SeedResult` it no longer has access to once `dq seed
+  --amend-master` runs as a fresh CLI invocation — reworked to reconstruct the one thing it needed
+  (VEEVA's `source_system_id`) from the database instead. Separately, `seed(with_defects=False)` was
+  skipping the missing feed's delivery *unconditionally*, defect flag or not — a "clean" world was
+  never actually clean. One-line fix, guarded on `with_defects`.
+- **T084 — VOL-DEVIATION's grain.** Was `territory_code` alone; is now `(product_key,
+  territory_code)`, so a new product cannot manufacture or hide a deviation in a territory's
+  unrelated existing business (spec Edge Cases, stated by name: "volume deviation on a new
+  product"). Surfaced a second, genuinely pre-existing latent issue while verifying this against the
+  hosted database: the rule's prior-period comparison window is computed as the *current* period's
+  own length, which does not equal a calendar month's actual length (September's 30 days vs.
+  August's 31) — invisible at territory-level aggregation, but a full 20%+ swing at per-product
+  grain for whichever transaction happened to land on the boundary day. Fixed in the seed generator
+  (transactions never date exactly on a period's first day), not the rule — the rule's comparison
+  window is a legitimate design choice for months of unequal length; the seed data just needs to
+  stop exercising the one day where that choice bites.
+- **T086 — a deliberately failing predicate.** `1 / (h.hcp_id - h.hcp_id)`: division by zero on real
+  per-row data, not a literal `1/0` the planner might fold away. Proves `COMPLETED_WITH_ERRORS`,
+  per-rule error granularity, and zero finding rows from a rule whose statement never completed.
+  Scoped every call to an explicit `rule_keys` list — several other modules call `run_rules` with no
+  filter and assert `status == "COMPLETED"`, and a genuinely active broken rule left in the shared
+  session schema would answer that question honestly and wrongly for tests that never meant to ask it.
+- **T087 — one record, three rules; an empty batch, not a missing feed.** A focal HCP record with a
+  malformed, duplicated NPI that also matches a composite partner — three findings, one record,
+  with two supporting partners each contributing exactly one of the other two findings so every
+  finding traces to a single cause. Separately, a dedicated source system declares and delivers a
+  zero-record batch, proving `data_batch` existing-with-`record_count=0` is a different fact from no
+  `data_batch` row at all — different remediations, different queryable evidence.
+- **T088 — Pydantic wraps its own validator's errors.** `_predicate_is_safe` raises
+  `RuleDefinitionError` directly, but `RuleDefinitionError` is a `ValueError` subclass, and Pydantic
+  v2 re-wraps every `ValueError` a model validator raises into `ValidationError` — so
+  `load_definition`'s original `except RuleDefinitionError` clause never actually fired, for a
+  missing field or for a rejected predicate alike, and the CLI's registration path loaded
+  definitions *before* its own try/except entirely. One `except ValidationError`, one filename,
+  fixes both.
+- **T089 — rollback, verified rather than asserted.** Five migrations (`0006`, `0007`, `0008`,
+  `0010`, `0012`) declare an explicit no-op `downgrade()` — each installed a safety tightening that
+  must never be silently weakened by rolling back past it — so "rollback" here means one migration
+  step, not a teardown to base. `tests/integration/test_migration_downgrade_restore.py` runs a fresh
+  install to head, downgrades one step, upgrades back, and asserts the schema this produces is
+  identical to what it was before. `README.md` (new — did not exist before this session) documents
+  the procedure, the migrate-only role boundary, and what to export before downgrading a database
+  with real findings in it.
+- **T073 — quickstart, run for real.** Every CLI-centric scenario (seed, register, run-rules by
+  batch and by source/period, findings, summarise, deactivate, replay, amend-master, admin sweep)
+  was executed against a throwaway prefixed schema, not only exercised through pytest. Actual output
+  matched documented expectations exactly, including the total finding count (21) reconciling
+  between `dq seed`'s own report and the sum of every scope subsequently evaluated.
+- **T075 — post-implementation constitution check.** Added to `plan.md` rather than a new file, next
+  to the Phase 1 pre-implementation table it supersedes. Nine enforced verdicts across seven
+  principles (I, II, V, VI, both halves of IX, X), four correctly deferred to a named future feature
+  (III, IV, VIII, XI), and principle VII still reported as **not enforced** rather than allowed to
+  drift into a claimed pass — stated as plainly at completion as it was at plan time.
+
+### For Feature 2's planning — env vars and role capabilities only, nothing else
+
+No connection string, password, or `.env`/`.env.bak` content is recorded here or anywhere in this
+log; the rule holds this session too.
+
+- **Env var names Feature 2 will need to evaluate:** `DQ_READONLY_URL` (existing — Feature 2's
+  read-side work can reuse it as-is); no `DQ_*_URL` yet exists for a workflow-writing role, because
+  none is granted (below).
+- **`workflow` and `audit` write-role grants are unresolved Feature 2 planning decisions, not
+  omissions.** The constitution's seven-role model (`dq_migrate`, `dq_ingest`, `dq_author`,
+  `dq_engine`, `dq_readonly`, `dq_sandbox`, `dq_publish`) is declared exhaustive, and every one of
+  the seven already has its Feature 1 grants fully specified in `data-model.md`. None of them holds
+  a write grant on `workflow` today. Feature 2 is the first feature with durable workflow state to
+  write (constitution VIII/IX), and deciding which existing role gets that grant — most plausibly
+  `dq_engine` or a role Feature 2 argues for by name — is exactly the kind of one-role-at-a-time
+  erosion principle VI's rationale warns about. Treat it as a design decision requiring its own
+  Constitution Check row, not a gap to quietly fill.
+- **`dq_readonly` on `audit`/`workflow` remains deferred, as data-model.md already states.** Those
+  schemas will hold persisted prompt payloads and checkpointed agent state; granting investigation
+  read access to either is Feature 2/3's decision to make once something is actually stored there.
+
+### Known limitations, carried forward
+
+1. **Rule 6 and rule 7 remain lexical approximations** (see Sessions 4 and 5).
+2. **A replay uses the exact rule-version set recorded on the original run** — this was still
+   listed as a limitation as of Session 6; T081 (Session 5) closed it. Left here corrected rather
+   than silently dropped: replay no longer uses whichever versions are active *now*.
+3. **`SUPABASE_DB_STATEFUL_URL` and `TEST_DATABASE_URL` still contain `[YOUR-PASSWORD]` placeholder
+   text** alongside their real values, per prior sessions — unchanged this session.
+4. **`SUPABASE_DB_POOLED_URL` is a bare hostname, not a URL**, per prior sessions — unchanged.
+5. **Principle VII still unenforced**, as designed and as restated in this session's constitution
+   check.
+6. **A literal manual walkthrough of `quickstart.md` Scenario 10 (the volume test) was not repeated
+   this session** — it is unchanged, already passing, and excluded from the default suite by design.
+
+### Next
+
+Feature 1 is complete. Feature 2 (Issue Triage & Prioritization) is next per `docs/roadmap.md` —
+start with `/speckit-specify`, and read this session's "For Feature 2's planning" note above before
+touching the role model.
+
+```powershell
+uv run pytest                 # 286 pass, 2 deselected (volume + golden)
+uv run pytest -m volume       # SC-008, unchanged this session
+uv run alembic upgrade head   # at 0013 (head)
+```

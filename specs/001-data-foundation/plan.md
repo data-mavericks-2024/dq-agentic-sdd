@@ -114,6 +114,34 @@ See [research.md](./research.md) § Constitution enforcement for the mechanism b
 | X | Testability | Expected finding set derived from the generator rather than hand-declared; set-equality assertion; determinism test comparing **predicate output** under varied query plans, not persisted findings | **Enforced structurally** |
 | VII | PII/PHI | Synthetic data only; no prompt boundary exists. No masking mechanism exists because there is nothing to mask into | **Not enforced — deferred to Feature 3**, stated plainly rather than claimed |
 
+### Post-implementation re-evaluation (T075)
+
+All eleven principles, at feature completion rather than at plan time. The Phase 1 re-evaluation
+above is left as a historical record — this table supersedes it, most materially for principle IX,
+whose "OPEN" status closed when T080 and T081 landed.
+
+| # | Principle | Enforcing design element or status | Verdict |
+|---|---|---|---|
+| I | Determinism First | Unchanged from Phase 1: `BEFORE INSERT` trigger on `rule_version` requires `provolatile = 'i'` for every expression function used, in the database, not only in `src/dq/rules/predicates.py` — `dq_author` can insert directly, so the Python validator alone would be advisory. `tests/integration/test_validation_parity.py` asserts the two agree over a shared corpus | **Enforced structurally** |
+| II | No Autonomous Writes | `dq_engine` holds no write grant on `commercial` (data-model.md grant matrix); `tests/integration/test_role_privileges.py` attempts `INSERT`/`UPDATE`/`DELETE`/`CREATE TABLE` as `dq_engine` and asserts `InsufficientPrivilege` for each — an attempted-and-refused test, not an absence-of-attempt one | **Enforced structurally** |
+| III | Evidence-Bound Reasoning | No agent exists in this feature; nothing to bind evidence to yet | **N/A this feature — deferred to Feature 3** |
+| IV | Simulate Before Propose | No correction is proposed in this feature; the `sandbox` schema is created (data-model.md) but has no writer until Feature 5 | **N/A this feature — deferred to Feature 5** |
+| V | Full Auditability | `rule_version` and `finding` immutable by trigger (`tests/integration/test_role_privileges.py` proves both reject `UPDATE`/`DELETE`); `rule_run.correlation_id`; `as_of_date` + `reference_watermark` + `session_settings` persisted per run, not merely computed in memory | **Enforced structurally** |
+| VI | Least-Privilege Data Access | Seven `NOINHERIT` roles, explicit per-schema grant matrix, no cross-membership; `tests/integration/test_role_conformance.py` asserts the database's `dq_*` roles equal the constitution's named seven, failing the build on an eighth | **Enforced structurally** |
+| VII | PII/PHI Discipline | Synthetic data only; no prompt boundary exists in this feature, so there is nothing to mask into. No masking mechanism has been built | **Not enforced — deferred to Feature 3**, stated plainly rather than claimed |
+| VIII | Deterministic Orchestration | No LangGraph node or agentic loop exists in this feature; `run_rules` is a plain function with explicit try/except, not a graph | **N/A this feature — deferred to Feature 2** |
+| IX | Resumability — idempotence | `UNIQUE (rule_version_id, scope_key, subject_key)` + `ON CONFLICT DO NOTHING`, uniform across all three subject types; `tests/integration/test_idempotent_rerun.py` | **Enforced structurally** |
+| IX | Resumability — reproducibility | **Closed since Phase 1.** T080 binds `:reference_watermark` into every historical predicate read, including `territory_alignment` and `data_batch`, and a `BEFORE INSERT` trigger structurally rejects a master-table predicate that omits it. T081 persists explicit replay lineage (`rule_run.replay_of_rule_run_id`) and `dq run-rules --replay-of` reconstructs the original scope, `as_of_date`, watermark, complete `session_settings`, and exact recorded rule-version set from persisted rows alone. `tests/integration/test_reproducibility.py` and `tests/integration/test_replay_contract.py` cover both | **Enforced structurally** |
+| X | Testability | Expected finding set emitted by the generator as it injects, never hand-maintained; set-equality assertion (not count, not subset); determinism test comparing **predicate output** across varied query plans; the golden set includes both required negative scenarios — a namesake pair that is a correct-by-definition suspected duplicate, and a legitimate territory realignment that trips `VOL-DEVIATION` on data nobody broke | **Enforced structurally** |
+| XI | UI Is Not a Trust Boundary | No UI and no HTTP API exist in this feature; the CLI (`src/dq/cli.py`) holds `dq_migrate`/`dq_author`/`dq_ingest` credentials directly and is documented as a development-only tool that must not survive past Feature 6's approval gate — a decision, not an oversight | **N/A this feature — deferred to Feature 2 (API) and Feature 7 (UI)**; the CLI's temporary privilege is stated in `src/dq/cli.py`'s own module docstring |
+
+**Summary: four principles enforced structurally with no open items (I, II, V, VI plus both halves
+of IX and X — nine enforced verdicts across seven principles), four correctly deferred to a named
+future feature (III, IV, VIII, XI), and one — VII — explicitly not enforced rather than quietly
+assumed.** No principle is satisfied only by prompt instruction; every "Enforced structurally"
+verdict above names a trigger, a grant, a constraint, or a test that attempts the violation and
+fails it — the standard this constitution's own preamble sets are structural, not stylistic.
+
 ## Project Structure
 
 ### Documentation (this feature)

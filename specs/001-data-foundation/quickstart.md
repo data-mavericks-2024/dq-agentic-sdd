@@ -195,6 +195,17 @@ somewhere, or free-tier `t4g.nano` simply being unable. Both are worth knowing i
 versioned HCP rows with three plausibly consumes 250–350 MB of a 500 MB ceiling before findings.
 The test may be infeasible rather than merely slow.
 
+## Scenario 11 — Rollback is verified, one step at a time (T089)
+
+```powershell
+uv run pytest tests/integration/test_migration_downgrade_restore.py
+```
+
+**Expected:** in an isolated schema, a fresh install to head, `alembic downgrade` one revision, then
+`alembic upgrade head` again — reproducing the exact pre-downgrade shape. Full procedure, the
+migrate-only role boundary, the five migrations with a deliberate no-op `downgrade()`, and what to
+export before rolling back a database with real data: `README.md` § Rollback procedure.
+
 ## Full validation
 
 ```powershell
