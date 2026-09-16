@@ -1,36 +1,47 @@
-.notice.success {
-  border-color: #a8d6c9;
-  background: #e7f6f1;
-  color: #126452;
+@media (max-width: 1240px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 1020px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status-band { grid-template-columns: 38px minmax(0, 1fr); }
+  .status-meta { grid-column: 2; text-align: left; padding-top: 4px; }
+}
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; height: auto; flex-direction: row; align-items: center; gap: 12px; padding: 10px 14px; }
+  .brand { padding: 0; }
+  .brand small { display: none; }
+  .nav { grid-auto-flow: column; grid-auto-columns: minmax(0, auto); gap: 4px; margin-left: auto; }
+  .nav-item span { display: none; }
+  .nav-item { min-height: 36px; padding: 8px 10px; }
+  .sidebar-foot { margin: 0; padding: 0 0 0 10px; border: 0; border-left: 1px solid rgba(255,255,255,.1); }
+  .health span:last-child { display: none; }
 }
 
 @media (max-width: 700px) {
-  .sidebar {
-    flex-direction: column;
-    align-items: stretch;
-  }
+  .topbar { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 14px; }
+  .topbar-controls { flex-wrap: wrap; }
+  .ctl { flex: 1 1 100%; }
+  .ctl select { flex: 1; }
+  .btn { flex: 1; }
+  .content { padding: 16px 14px 32px; }
+  .notice { margin: 12px 14px -4px; }
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+  .card-head { flex-direction: column; align-items: stretch; }
+  .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .filters input[type="search"] { grid-column: 1 / -1; }
+  .filters select { width: 100%; }
+  .seg { align-self: flex-start; }
+  .kv { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .kv dd { margin-bottom: 7px; }
+  .cell-value { max-width: 180px; }
+  .toast { left: 14px; right: 14px; max-width: none; }
+}
 
-  .brand div {
-    display: block;
-  }
-
-  .sidebar nav {
-    display: flex;
-    margin: 10px 0 0;
-    overflow-x: auto;
-  }
-
-  .nav-item,
-  .nav-item:not(.active) {
-    display: flex;
-    flex: 0 0 auto;
-    width: auto;
-    height: 40px;
-    padding: 0 12px;
-    font-size: 13px;
-  }
-
-  .nav-item.active::before {
-    content: none;
-  }
+@media (max-width: 420px) {
+  .filters { grid-template-columns: minmax(0, 1fr); }
+  .drawer { width: 100%; }
+  .evidence-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }

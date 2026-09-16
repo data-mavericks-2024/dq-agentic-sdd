@@ -1,102 +1,244 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DQ Forward | Nightly Commercial Load</title>
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="/responsive.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commercial Data Quality — Nightly Load</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="responsive.css">
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">DQ</span><div><strong>DQ Forward</strong><small>Commercial data assurance</small></div></div>
-      <p class="nav-label">WORKSPACE</p>
-      <nav aria-label="Workspace">
-        <button class="nav-item active" data-view="command">Command center</button>
-        <button class="nav-item" data-view="findings">Findings <span id="nav-finding-count">0</span></button>
-        <button class="nav-item" data-view="rules">Rule library</button>
-        <button class="nav-item" data-view="evidence">Run evidence</button>
-        <button class="nav-item" data-view="governance">Governance</button>
-      </nav>
-      <div class="sidebar-foot"><span>Feature 001</span><strong>76 / 96</strong><div class="progress"><span></span></div></div>
-    </aside>
 
-    <main>
-      <header class="topbar">
-        <span>Commercial Operations / Data Quality Foundation</span>
-        <div class="top-actions"><span class="demo-badge">Live synthetic demo data</span><span class="health"><i></i><span id="health-text">Connecting</span></span></div>
-      </header>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3 14 9-14 9V3z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-rule" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M5 20v-5M10 20V10M15 20V6M20 20v-9"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-ghost" viewBox="0 0 24 24"><path d="M3 21V9a9 9 0 0 1 18 0v12l-3-2-3 2-3-2-3 2-3-2z"/><path d="M9 10h.01M15 10h.01"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/></symbol>
+</svg>
 
-      <div class="content">
-        <section class="view" id="view-command">
-          <div class="heading"><div><h1>Data quality command center</h1><p>One governed view of nightly execution, persisted evidence, and operational risk.</p></div><button class="secondary" id="refresh">Refresh</button></div>
+<div class="shell">
 
-          <section class="run-controls" aria-label="Nightly load controls">
-            <label>Demo scenario<input value="Nightly commercial load" readonly></label>
-            <label>Business period<select id="period-select"></select></label>
-            <label>Source<input value="All commercial sources" readonly></label>
-            <button class="primary" id="run-rules"><span class="play">&#9654;</span> Run deterministic rules</button>
-          </section>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark"><svg class="i"><use href="#i-shield"/></svg></span>
+      <span>
+        <strong>Commercial DQ</strong>
+        <small>Deterministic foundation</small>
+      </span>
+    </div>
 
-          <div class="notice" id="notice" hidden></div>
+    <nav class="nav" aria-label="Sections">
+      <button class="nav-item is-active" data-view="overview"><svg class="i"><use href="#i-grid"/></svg><span>Command centre</span></button>
+      <button class="nav-item" data-view="findings"><svg class="i"><use href="#i-list"/></svg><span>Findings</span><b class="nav-count" id="nav-findings">0</b></button>
+      <button class="nav-item" data-view="rules"><svg class="i"><use href="#i-book"/></svg><span>Rule library</span><b class="nav-count" id="nav-rules">0</b></button>
+      <button class="nav-item" data-view="evidence"><svg class="i"><use href="#i-shield"/></svg><span>Run evidence</span></button>
+    </nav>
 
-          <section class="metrics" aria-label="Execution metrics">
-            <article><small>RECORDS EVALUATED</small><strong id="records">-</strong><span id="batch-note">Immutable batch scope</span></article>
-            <article><small>PERSISTED FINDINGS</small><strong id="finding-count">-</strong><span id="finding-note">Across the nightly period</span></article>
-            <article><small>RULES EVALUATED</small><strong id="rule-count">-</strong><span id="rule-note">Version-attributed SQL rules</span></article>
-            <article><small>RUN DURATION</small><strong id="duration">-</strong><span id="run-status">Awaiting evidence</span></article>
-          </section>
-
-          <div class="command-grid">
-            <section class="panel signal-panel"><div class="panel-head"><div><h2>Operational signal</h2><p>Findings grouped by deterministic quality dimension</p></div><button class="text-button" data-jump="findings">View findings</button></div><div class="panel-body" id="dimension-list"></div></section>
-            <section class="panel"><div class="panel-head"><div><h2>Latest activity</h2><p>Persisted run milestones</p></div></div><div class="panel-body activity" id="activity-list"></div></section>
-          </div>
-
-          <section class="evidence-strip">
-            <div><small>LATEST RUN SET</small><strong id="latest-run">Not run</strong></div>
-            <div><small>REFERENCE WATERMARK</small><strong id="watermark">-</strong></div>
-            <div><small>MIGRATION HEAD</small><strong>0013</strong></div>
-            <div><small>EVIDENCE STATUS</small><strong id="evidence-status">Awaiting first run</strong></div>
-          </section>
-        </section>
-
-        <section class="view" id="view-findings" hidden>
-          <div class="heading"><div><h1>Findings worklist</h1><p>Every result retains the failing subject, rule version, owner, and observed evidence.</p></div><span class="review-badge">Human review required</span></div>
-          <section class="filter-bar">
-            <label>Search<input id="finding-search" placeholder="Subject, rule, owner"></label>
-            <label>Domain<select id="domain-filter"><option value="all">All domains</option></select></label>
-            <label>Severity<select id="severity-filter"><option value="all">All severities</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select></label>
-            <span><strong id="visible-findings">0</strong> visible</span>
-          </section>
-          <section class="panel table-panel"><table><thead><tr><th>Subject</th><th>Domain</th><th>Rule</th><th>Severity</th><th>Owner</th><th>Detected</th></tr></thead><tbody id="findings-table"></tbody></table></section>
-        </section>
-
-        <section class="view" id="view-rules" hidden>
-          <div class="heading"><div><h1>Rule library</h1><p>Active, versioned SQL definitions that alone determine pass or fail.</p></div><span class="enforced-badge">Deterministic control</span></div>
-          <div class="rule-grid" id="rule-grid"></div>
-        </section>
-
-        <section class="view" id="view-evidence" hidden>
-          <div class="heading"><div><h1>Run evidence</h1><p>Each scoped evaluation records its exact watermark, rule outcomes, and correlation identity.</p></div><span class="enforced-badge">Replayable context</span></div>
-          <section class="panel table-panel"><table><thead><tr><th>Run</th><th>Scope</th><th>Rules</th><th>New findings</th><th>Watermark</th><th>Status</th><th>Duration</th></tr></thead><tbody id="runs-table"></tbody></table></section>
-          <section class="panel evidence-chain"><div class="panel-head"><div><h2>Evidence chain</h2><p>What this nightly demo proves end to end</p></div></div><div class="chain"><div><b>1</b><strong>Immutable source batch</strong><span>Arrival and business period recorded</span></div><div><b>2</b><strong>Versioned SQL evaluation</strong><span>Fixed predicates decide failures</span></div><div><b>3</b><strong>Attributed findings</strong><span>Subject, owner, severity, rule version</span></div><div><b>4</b><strong>Historical replay</strong><span>Same recorded world can be reconstructed</span></div></div></section>
-        </section>
-
-        <section class="view" id="view-governance" hidden>
-          <div class="heading"><div><h1>Governance by construction</h1><p>Controls live in database privileges and backend boundaries, not presentation text.</p></div><span class="enforced-badge">Constitution-led design</span></div>
-          <div class="governance-grid">
-            <section class="panel"><div class="panel-head"><div><h2>Enforced in this demo</h2><p>Structural controls already present</p></div></div><div class="guardrails"><article><strong>Determinism first</strong><p>Only versioned PostgreSQL rules decide whether a record fails.</p></article><article><strong>No browser credential</strong><p>The UI calls a same-origin backend and never connects directly to Supabase.</p></article><article><strong>Least privilege</strong><p>Reads use dq_readonly. Execution uses the existing dq_engine path.</p></article><article><strong>Full attribution</strong><p>Findings retain scope, rule version, severity, owner, and run identity.</p></article></div></section>
-            <section class="panel"><div class="panel-head"><div><h2>Explicitly outside this slice</h2><p>Future features, shown without simulated actions</p></div></div><div class="guardrails future"><article><strong>Agent investigation</strong><p>No model call occurs in this demo. Feature 3 adds evidence-bound reasoning.</p></article><article><strong>Correction proposal</strong><p>No correction is generated or written to curated data.</p></article><article><strong>Human approval and publish</strong><p>Feature 6 adds the durable approval gate and governed publish API.</p></article></div></section>
-          </div>
-        </section>
+    <div class="sidebar-foot">
+      <div class="health" id="health">
+        <span class="health-dot"></span>
+        <span id="health-text">Checking database…</span>
       </div>
-    </main>
-  </div>
+    </div>
+  </aside>
 
-  <div class="overlay" id="detail-overlay" hidden>
-    <aside class="drawer"><button class="close" id="close-detail" aria-label="Close">&times;</button><span class="severity" id="detail-severity"></span><h2 id="detail-rule"></h2><p class="muted" id="detail-id"></p><dl id="detail-grid"></dl><section class="evidence-box"><small>OBSERVED EVIDENCE</small><code id="detail-evidence"></code></section><section class="boundary"><h3>Decision boundary</h3><p>The SQL rule determines failure status. This demo does not alter curated data or approve corrections.</p></section></aside>
-  </div>
-  <script src="/app.js"></script>
+  <main>
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="page-title">Command centre</h1>
+        <p class="muted" id="page-sub">Nightly commercial load</p>
+      </div>
+      <div class="topbar-controls">
+        <label class="ctl">
+          <span>Period</span>
+          <select id="period-select"></select>
+        </label>
+        <button class="btn" id="btn-refresh"><svg class="i"><use href="#i-refresh"/></svg><span>Refresh</span></button>
+        <button class="btn btn-primary" id="btn-run"><svg class="i"><use href="#i-play"/></svg><span>Run rules</span></button>
+      </div>
+    </header>
+
+    <div class="notice" id="notice" hidden></div>
+
+    <div class="content">
+
+      <!-- ================= OVERVIEW ================= -->
+      <section class="view" id="view-overview">
+
+        <div class="status-band" id="status-band">
+          <span class="status-icon"><svg class="i"><use href="#i-clock" id="status-icon-use"/></svg></span>
+          <div>
+            <strong id="status-title">No evaluation on record</strong>
+            <p id="status-detail">Run the deterministic rules to create evidence for this period.</p>
+          </div>
+          <div class="status-meta">
+            <small>Reference watermark</small>
+            <b class="mono" id="status-watermark">—</b>
+          </div>
+        </div>
+
+        <div class="kpis">
+          <article class="kpi">
+            <div class="kpi-top"><span>Records evaluated</span><svg class="i"><use href="#i-db"/></svg></div>
+            <b id="kpi-records">—</b>
+            <small id="kpi-records-note">No batches in scope</small>
+          </article>
+          <article class="kpi">
+            <div class="kpi-top"><span>Findings</span><svg class="i"><use href="#i-alert"/></svg></div>
+            <b id="kpi-findings">—</b>
+            <small id="kpi-findings-note">Persisted, immutable</small>
+          </article>
+          <article class="kpi">
+            <div class="kpi-top"><span>Rules evaluated</span><svg class="i"><use href="#i-rule"/></svg></div>
+            <b id="kpi-rules">—</b>
+            <small id="kpi-rules-note">Version-attributed SQL</small>
+          </article>
+          <article class="kpi">
+            <div class="kpi-top"><span>Run duration</span><svg class="i"><use href="#i-clock"/></svg></div>
+            <b id="kpi-duration">—</b>
+            <small id="kpi-duration-note">Across all scopes</small>
+          </article>
+        </div>
+
+        <div class="alerts" id="alerts" hidden></div>
+
+        <div class="cols">
+          <section class="card">
+            <header class="card-head">
+              <div><h2>Where the failures are</h2><p class="muted sm">Persisted findings for this period</p></div>
+              <div class="seg" role="tablist" aria-label="Breakdown dimension">
+                <button class="seg-btn is-active" data-break="severity">Severity</button>
+                <button class="seg-btn" data-break="dimension">Dimension</button>
+                <button class="seg-btn" data-break="owner">Owner</button>
+              </div>
+            </header>
+            <div class="card-body bars" id="breakdown"></div>
+          </section>
+
+          <section class="card">
+            <header class="card-head">
+              <div><h2>Recent runs</h2><p class="muted sm">Scoped evaluations, newest first</p></div>
+              <button class="btn btn-quiet" data-jump="evidence"><span>All evidence</span></button>
+            </header>
+            <div class="card-body feed" id="recent-runs"></div>
+          </section>
+        </div>
+
+        <section class="card">
+          <header class="card-head">
+            <div><h2>Batches in scope</h2><p class="muted sm">Physical arrivals — immutable once recorded</p></div>
+          </header>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Batch</th><th>Source</th><th>Records</th><th>Arrived</th></tr></thead>
+              <tbody id="batches-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- ================= FINDINGS ================= -->
+      <section class="view" id="view-findings" hidden>
+        <section class="card">
+          <header class="card-head card-head-wrap">
+            <div><h2>Findings</h2><p class="muted sm"><b id="findings-count">0</b> shown · every row carries its rule version, owner and evidence</p></div>
+            <div class="filters">
+              <input type="search" id="f-search" placeholder="Search subject, rule or owner" aria-label="Search findings">
+              <select id="f-severity" aria-label="Severity"><option value="all">All severities</option></select>
+              <select id="f-domain" aria-label="Domain"><option value="all">All domains</option></select>
+              <select id="f-owner" aria-label="Owner"><option value="all">All owners</option></select>
+              <select id="f-type" aria-label="Subject type"><option value="all">All subjects</option></select>
+            </div>
+          </header>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Subject</th><th>Rule</th><th>Severity</th><th>Owner</th><th>Offending value</th><th>Detected</th></tr>
+              </thead>
+              <tbody id="findings-tbody"></tbody>
+            </table>
+          </div>
+          <footer class="card-foot">Select a row for full evidence and the decision boundary.</footer>
+        </section>
+      </section>
+
+      <!-- ================= RULES ================= -->
+      <section class="view" id="view-rules" hidden>
+        <div class="card-lede">
+          <h2>Rule library</h2>
+          <p class="muted">Every check is deterministic SQL executed in PostgreSQL. No model decides whether a record failed — a rule does, at a named version, and that version is stamped on every finding it produces.</p>
+        </div>
+        <div class="rules-grid" id="rules-grid"></div>
+      </section>
+
+      <!-- ================= EVIDENCE ================= -->
+      <section class="view" id="view-evidence" hidden>
+        <div class="card-lede">
+          <h2>Run evidence</h2>
+          <p class="muted">Each run records the world it saw: the scope, the delivery watermark, the exact rule versions, and a correlation identity. That is what makes a historical answer reproducible months later.</p>
+        </div>
+        <section class="card">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Run</th><th>Scope</th><th>Rules</th><th>New findings</th><th>Watermark</th><th>Status</th><th>Duration</th></tr>
+              </thead>
+              <tbody id="runs-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- ================= FINDING DETAIL ================= -->
+<div class="overlay" id="overlay" hidden>
+  <aside class="drawer" role="dialog" aria-label="Finding evidence">
+    <header class="drawer-head">
+      <div>
+        <span class="sev" id="d-sev">—</span>
+        <h2 id="d-rule">—</h2>
+        <p class="muted sm" id="d-id">—</p>
+      </div>
+      <button class="btn btn-icon" id="d-close" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="drawer-body">
+      <dl class="kv" id="d-kv"></dl>
+
+      <div class="evidence" id="d-evidence-wrap">
+        <small>Evidence</small>
+        <div class="evidence-row"><span>Offending</span><code id="d-offending">—</code></div>
+        <div class="evidence-row"><span>Observed</span><code id="d-observed">—</code></div>
+        <div class="evidence-row"><span>Expected</span><code id="d-expected">—</code></div>
+      </div>
+
+      <div class="boundary">
+        <h3>Decision boundary</h3>
+        <ul>
+          <li>A versioned SQL rule decided this, not a model.</li>
+          <li>Investigation agents (Feature 3) may explain it and must cite evidence — they cannot overturn it.</li>
+          <li>Any correction requires a named steward's approval before it reaches curated data.</li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
 </body>
 </html>
