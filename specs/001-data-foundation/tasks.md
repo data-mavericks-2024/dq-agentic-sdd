@@ -200,16 +200,16 @@ confirm counts reconcile against the summary.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T065 [P] [US4] Integration test in `tests/integration/test_findings_query.py` covering each filter and their combinations (FR-023), and asserting every returned finding includes `finding_id`, subject identity, offending or observed value, expected value, `rule_key`, `rule_version_id`, `version_no`, domain, dimension, severity, `owning_function`, and `detected_at` so record findings are fully attributable without a separate lookup (US1/AC4, SC-002)
-- [ ] T066 [P] [US4] Integration test in `tests/integration/test_batch_summary.py` — counts reconcile exactly (SC-004), counts are **per rule not per rule version** after a version change, and errored rules appear as an explicit line
-- [ ] T066a [P] [US4] Integration test in `tests/integration/test_summary_aggregates.py` asserting a never-arrived feed appears in the summary for the affected source and period — not only in a findings query (FR-024a, SC-009)
-- [ ] T067 [P] [US4] Unit test for summary aggregation arithmetic in `tests/unit/test_summary_math.py`
+- [X] T065 [P] [US4] Integration test in `tests/integration/test_findings_query.py` covering each filter and their combinations (FR-023), and asserting every returned finding includes `finding_id`, subject identity, offending or observed value, expected value, `rule_key`, `rule_version_id`, `version_no`, domain, dimension, severity, `owning_function`, and `detected_at` so record findings are fully attributable without a separate lookup (US1/AC4, SC-002)
+- [X] T066 [P] [US4] Integration test in `tests/integration/test_batch_summary.py` — counts reconcile exactly (SC-004), errored rules appear as an explicit line. **The per-rule-not-per-version dedup case moved to `tests/integration/test_summary_version_dedup.py`**, named to sort after `test_golden_findings.py` alphabetically — its purpose-built rule's findings are visible to that file's unscoped SC-001 equality check regardless of which file registers them, and this file's original name sorted before it (see that file's docstring, and `test_rule_versioning.py`'s docstring for the same hazard)
+- [X] T066a [P] [US4] Integration test in `tests/integration/test_summary_aggregates.py` asserting a never-arrived feed appears in the summary for the affected source and period — not only in a findings query (FR-024a, SC-009)
+- [X] T067 [P] [US4] Unit test for summary aggregation arithmetic in `tests/unit/test_summary_math.py`
 
 ### Implementation
 
-- [ ] T068 [US4] Implement `query_findings` in `src/dq/engine/summary.py` with all five filters, any combination, and all-None returning everything; return a typed Pydantic finding response assembled through the `finding`, `rule_version`, and `rule` relationships so callers need no separate lookup for severity, ownership, rule identity, or rule-version attribution
-- [ ] T069 [US4] Implement `summarise_scope` in `src/dq/engine/summary.py` (with a `summarise_batch` wrapper): group by domain, by rule, and by severity; count distinct `subject_key` per `rule_id` so a threshold change does not double-count; include a rules-errored line; and **include `source_period` findings covering the scope's source and period** so a never-arrived feed is visible in the summary rather than only in a query (FR-024a)
-- [ ] T070 [US4] Implement `dq findings` and `dq summarise` in `src/dq/cli.py`
+- [X] T068 [US4] Implement `query_findings` in `src/dq/engine/summary.py` with all five filters, any combination, and all-None returning everything; return a typed Pydantic finding response assembled through the `finding`, `rule_version`, and `rule` relationships so callers need no separate lookup for severity, ownership, rule identity, or rule-version attribution
+- [X] T069 [US4] Implement `summarise_scope` in `src/dq/engine/summary.py` (with a `summarise_batch` wrapper): group by domain, by rule, and by severity; count distinct `subject_key` per `rule_id` so a threshold change does not double-count; include a rules-errored line; and **include `source_period` findings covering the scope's source and period** so a never-arrived feed is visible in the summary rather than only in a query (FR-024a)
+- [X] T070 [US4] Implement `dq findings` and `dq summarise` in `src/dq/cli.py`
 
 **Checkpoint**: All four user stories independently functional.
 
