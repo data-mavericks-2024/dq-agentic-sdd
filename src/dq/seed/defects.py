@@ -46,9 +46,25 @@ if TYPE_CHECKING:
 #: cannot be confused with the transaction-level defects, which all land in territory 0.
 REALIGNED_TERRITORY_INDEX = 2
 
-#: How much the realigned territory grows. Comfortably past VOL-DEVIATION's 20% threshold, because
-#: a scenario that only just trips the rule tests the arithmetic rather than the judgement.
+#: The one product within that territory the growth is concentrated on. VOL-DEVIATION's grain is
+#: `(product_key, territory_code)` (spec Edge Cases): growth spread evenly across every product in
+#: the territory would dilute each product's own deviation below the threshold, or push it over by
+#: an amount that depends on how many products share the growth — neither is a deterministic test.
+#: Confining it to one product makes exactly one `(product, territory)` pair cross the threshold and
+#: leaves the other five in this territory, which get none of the extra volume, untouched.
+REALIGNED_PRODUCT_INDEX = 0
+
+#: How much the realigned product's own volume grows. Comfortably past VOL-DEVIATION's 20%
+#: threshold, because a scenario that only just trips the rule tests the arithmetic rather than the
+#: judgement.
 REALIGNMENT_GROWTH = 0.35
+
+#: A product key that exists in no product master version anywhere. Used to prove VOL-DEVIATION
+#: does not fire against a `(product, territory)` pair with no prior-period baseline — the "new
+#: product" edge case the spec names explicitly. The same transaction is, correctly, a
+#: SALES-ORPHAN-REF finding: nothing about a product that has never been sold and never delivered
+#: to master data is a volume deviation, but it is unquestionably an orphan reference.
+NEW_PRODUCT_NO_BASELINE_KEY = "PRD-NEW-LAUNCH-NO-BASELINE"
 
 
 def _insert_hcp_returning(conn: Connection, **row: object) -> int:
@@ -89,11 +105,13 @@ def inject(conn: Connection, result: SeedResult) -> None:
     _inject_npi_defects(conn, result, sid, bid, valid_from)
     _inject_duplicate_npi(conn, result, sid, other_sid, bid, valid_from)
     _inject_namesake_pair(conn, result, sid, other_sid, bid, valid_from)
+    _inject_multi_rule_record(conn, result, sid, bid, valid_from)
     _inject_orphan_references(conn, result, sid, bid)
     _inject_missing_alignment(conn, result, sid, bid)
     _inject_uom_mismatch(conn, result, sid, bid)
     _inject_alignment_overlap_and_gap(conn, result, sid, bid)
     _inject_legitimate_realignment(conn, sid, bid)
+    _inject_volume_deviation_no_baseline(conn, result, sid, bid)
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +232,103 @@ def _inject_namesake_pair(
         str(hcp_id),
         f"namesake of an {MISSING_FEED_SOURCE} record: {partner.last_name}, "
         f"{partner.first_name[0]}, {partner.postal_code}, {partner.licence_state}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# US1/AC3 — one record failing three independent rules at once
+# ---------------------------------------------------------------------------
+
+
+def _inject_multi_rule_record(
+    conn: Connection, result: SeedResult, sid: int, bid: int, valid_from: date
+) -> None:
+    """One HCP record that is simultaneously malformed, an NPI duplicate, and a composite match.
+
+    US1/AC3, stated exactly: "a record that violates three separate rules... three distinct
+    findings are recorded against that record, one per rule." Every other defect in this module is
+    injected in isolation on purpose — this is the one place three are combined deliberately, to
+    prove the golden run behaves as AC3 describes rather than merely appearing to because no seeded
+    record has ever tested it.
+
+    Two supporting partners, each contributing exactly one of the other two findings, so each
+    finding in the golden set traces to a single, identifiable cause:
+
+    * ``_NPI_PARTNER`` shares the malformed NPI literally, with an unrelated name — it exists only
+      to make the NPI a *duplicate*, not only malformed.
+    * ``_COMPOSITE_PARTNER`` shares the name/postal/state composite with a distinct, valid NPI —
+      it exists only to make the composite match, uncomplicated by also being an NPI duplicate.
+    """
+    malformed_npi = "555"  # Three digits: fails HCP-NPI-FORMAT's shape check on its own.
+
+    focal_id = _insert_hcp_returning(
+        conn,
+        sid=sid,
+        key="HCP-DEFECT-TRIPLE",
+        vf=valid_from,
+        bid=bid,
+        npi=malformed_npi,
+        first="Xavier",
+        last="Triplet",
+        postal="61234",
+        state="OR",
+        hco=None,
+    )
+    npi_partner_id = _insert_hcp_returning(
+        conn,
+        sid=sid,
+        key="HCP-DEFECT-TRIPLE-NPI-PARTNER",
+        vf=valid_from,
+        bid=bid,
+        npi=malformed_npi,
+        first="Pnpi",
+        last="Partner",
+        postal="61999",
+        state="WA",
+        hco=None,
+    )
+    composite_partner_id = _insert_hcp_returning(
+        conn,
+        sid=sid,
+        key="HCP-DEFECT-TRIPLE-COMPOSITE-PARTNER",
+        vf=valid_from,
+        bid=bid,
+        npi=_synthetic_npi(90_000_003),
+        first="Xavier",
+        last="Triplet",
+        postal="61234",
+        state="OR",
+        hco=None,
+    )
+
+    # The focal record: all three, which is the point of AC3.
+    result.expect(
+        "HCP-NPI-FORMAT", str(focal_id), "malformed NPI — three digits, not ten (also duplicated)"
+    )
+    result.expect(
+        "HCP-DUP-NPI", str(focal_id), f"shares malformed NPI {malformed_npi} with a partner"
+    )
+    result.expect(
+        "HCP-DUP-COMPOSITE", str(focal_id), "shares name/postal/state composite with a partner"
+    )
+
+    # Both duplicate checks are symmetric — each partner is flagged in its own right too, or the
+    # golden set's equality check would see these rows as unexpected findings rather than declared
+    # supporting characters.
+    result.expect(
+        "HCP-NPI-FORMAT",
+        str(npi_partner_id),
+        "malformed NPI — three digits, not ten (shared with the focal record)",
+    )
+    result.expect(
+        "HCP-DUP-NPI",
+        str(npi_partner_id),
+        f"shares malformed NPI {malformed_npi} with the focal record",
+    )
+    result.expect(
+        "HCP-DUP-COMPOSITE",
+        str(composite_partner_id),
+        "shares name/postal/state composite with the focal record",
     )
 
 
@@ -404,17 +519,30 @@ def _inject_alignment_overlap_and_gap(
 
 
 def _inject_legitimate_realignment(conn: Connection, sid: int, bid: int) -> None:
-    """Grow one territory's volume by 35% — legitimately.
+    """Grow one product's volume, in one territory, by 35% — legitimately.
 
     A field expansion moved practitioners into this territory. Every transaction is correct, every
     reference resolves, and VOL-DEVIATION fires anyway because its 20% threshold has never accounted
     for planned realignment.
 
+    **Confined to one product**, because the rule's grain is `(product_key, territory_code)`.
+    Spreading the growth across every product sharing this territory would make each product's own
+    deviation depend on how many products absorbed the extra volume — not a number this test can
+    assert against. Concentrating it on `REALIGNED_PRODUCT_INDEX` makes exactly one
+    `(product, territory)` pair cross the threshold, deterministically, and leaves every other
+    product in the territory — which shares the same baseline but none of the growth — at 0%
+    deviation.
+
     The correct resolution is a new rule version, not a correction. Constitution X requires this
     scenario to exist in the golden set before any agent is built against it — an agent that can only
     ever confirm a problem erodes steward trust faster than one that is occasionally wrong.
     """
-    from dq.seed.generator import BASELINE_QTY, HCPS_PER_SOURCE, TXNS_PER_TERRITORY
+    from dq.seed.generator import (
+        BASELINE_QTY,
+        HCPS_PER_SOURCE,
+        PRODUCTS_PER_SOURCE,
+        TXNS_PER_TERRITORY,
+    )
 
     territory = _territory_code(sid, REALIGNED_TERRITORY_INDEX)
     aligned = [
@@ -422,23 +550,55 @@ def _inject_legitimate_realignment(conn: Connection, sid: int, bid: int) -> None
         for i in range(HCPS_PER_SOURCE)
         if i % 4 == REALIGNED_TERRITORY_INDEX  # TERRITORIES_PER_SOURCE
     ]
-    extra = max(1, int(TXNS_PER_TERRITORY * REALIGNMENT_GROWTH))
+    # The baseline this product already carries in this territory (`_transaction_rows` gives every
+    # product an equal share of `TXNS_PER_TERRITORY`), so growth is expressed as a fraction of what
+    # actually exists rather than of the territory's un-grained total.
+    baseline_txns = TXNS_PER_TERRITORY // PRODUCTS_PER_SOURCE
+    extra = max(1, round(baseline_txns * REALIGNMENT_GROWTH))
 
     rows = [
         {
             "bid": bid,
             "sid": sid,
             "tkey": f"TXN-REALIGN-{n}",
-            "pkey": _product_key(sid, n % 6),
+            "pkey": _product_key(sid, REALIGNED_PRODUCT_INDEX),
             "hkey": f"HCP-{sid}-{aligned[n % len(aligned)]:04d}",
             "terr": territory,
             "d": TARGET_PERIOD[0] + timedelta(days=10 + (n % 15)),
             "qty": BASELINE_QTY,
-            "uom": _product_uom(n % 6),
+            "uom": _product_uom(REALIGNED_PRODUCT_INDEX),
         }
         for n in range(extra)
     ]
     conn.execute(_INSERT_TXN, rows)
+
+
+def _inject_volume_deviation_no_baseline(
+    conn: Connection, result: SeedResult, sid: int, bid: int
+) -> None:
+    """A product with substantial current-period volume and no prior-period presence at all.
+
+    Spec Edge Cases: "Volume deviation on a new product with no prior period to compare against. The
+    rule must not fire spuriously." A large quantity is used deliberately — if the rule's `JOIN`
+    ever regressed to a `LEFT JOIN` with a `coalesce(p.units, 0)` fallback, this transaction would
+    produce a deviation approaching infinity, not a subtle miss.
+
+    The product key exists in no master version, so this is, correctly, also a SALES-ORPHAN-REF
+    finding — that rule and this one are answering different questions about the same fact.
+    """
+    txn_id = _insert_txn_returning(
+        conn,
+        bid=bid,
+        sid=sid,
+        tkey="TXN-DEFECT-VOLDEV-NEW-PRODUCT",
+        pkey=NEW_PRODUCT_NO_BASELINE_KEY,
+        hkey=f"HCP-{sid}-0000",
+        terr=_territory_code(sid, 0),
+        d=TARGET_PERIOD[0] + timedelta(days=6),
+        qty=10_000,
+        uom="EA",
+    )
+    result.expect("SALES-ORPHAN-REF", str(txn_id), "references a product absent from master data")
 
 
 def expect_aggregates(result: SeedResult) -> None:
@@ -459,9 +619,12 @@ def expect_aggregates(result: SeedResult) -> None:
         "declared monthly feed delivered nothing for this period",
     )
 
-    # FR-022 — the rule is wrong, not the data.
+    # FR-022 — the rule is wrong, not the data. subject_key is `<territory_code>:<product_key>`,
+    # matching the rule's `(product_key, territory_code)` grain.
+    target_sid = result.source_ids[TARGET_SOURCE]
     result.expect(
         "VOL-DEVIATION",
-        _territory_code(result.source_ids[TARGET_SOURCE], REALIGNED_TERRITORY_INDEX),
+        f"{_territory_code(target_sid, REALIGNED_TERRITORY_INDEX)}:"
+        f"{_product_key(target_sid, REALIGNED_PRODUCT_INDEX)}",
         "legitimate territory realignment; threshold has not been revised since it was set",
     )

@@ -12,9 +12,15 @@ from __future__ import annotations
 from dq.engine.summary import RuleCount, _aggregate, _DistinctFinding
 
 
-def _row(rule_id: int, rule_key: str, domain: str, subject_key: str, severity: str) -> _DistinctFinding:
+def _row(
+    rule_id: int, rule_key: str, domain: str, subject_key: str, severity: str
+) -> _DistinctFinding:
     return _DistinctFinding(
-        rule_id=rule_id, rule_key=rule_key, domain=domain, subject_key=subject_key, severity=severity
+        rule_id=rule_id,
+        rule_key=rule_key,
+        domain=domain,
+        subject_key=subject_key,
+        severity=severity,
     )
 
 

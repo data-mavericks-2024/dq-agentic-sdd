@@ -357,7 +357,16 @@ def _transaction_rows(source_id: int, period: tuple[date, date]) -> list[dict[st
                     "pkey": _product_key(source_id, product_index),
                     "hkey": f"HCP-{source_id}-{hcp_index:04d}",
                     "terr": _territory_code(source_id, t),
-                    "d": period[0] + timedelta(days=n % 27),
+                    # Never `period[0]` itself (`+ 1`, not `+ 0`). VOL-DEVIATION's prior-period
+                    # window is `[scope_period_start - (scope_period_end - scope_period_start),
+                    # scope_period_start)` — the *current* period's own length, not the prior
+                    # period's actual length. August is 31 days and September's scope makes the
+                    # window only 30, so a transaction dated exactly on the prior period's first day
+                    # falls outside it. At territory-level aggregation losing one of many
+                    # transactions was immaterial; at the `(product, territory)` grain T084
+                    # introduced, losing the one transaction for a specific product is a full 20%
+                    # of that product's own baseline — a seed-data artifact, not a rule defect.
+                    "d": period[0] + timedelta(days=1 + (n % 27)),
                     "qty": BASELINE_QTY,
                     "uom": _product_uom(product_index),
                 }
@@ -420,7 +429,11 @@ class Amendment:
     new_uom: str
 
 
-def amend_master(settings: Settings, result: SeedResult) -> Amendment:
+class AmendmentTargetMissingError(LookupError):
+    """No prior seed exists for ``amend_master`` to amend."""
+
+
+def amend_master(settings: Settings) -> Amendment:
     """Deliver a later batch carrying **back-dated** master versions (T063).
 
     Back-dated is the whole point. A version delivered later but stamped ``valid_from`` inside an
@@ -438,9 +451,12 @@ def amend_master(settings: Settings, result: SeedResult) -> Amendment:
 
     A design that only pinned the business date would show both changes in a historical re-run and
     call it correct. That is exactly the defect the watermark exists to prevent (research.md D3).
+
+    **Takes no in-process ``SeedResult``.** ``dq seed --amend-master`` runs in a fresh CLI
+    invocation with no memory of whatever process ran the original ``dq seed`` — the source id this
+    needs is reconstructed from ``source_system``, not carried over from an object that no longer
+    exists (T082).
     """
-    target = result.batch(TARGET_SOURCE, TARGET_PERIOD[0])
-    source_id = target.source_system_id
     # Back-dated into the target period, not into the amendment period.
     back_dated = TARGET_PERIOD[0]
 
@@ -451,6 +467,15 @@ def amend_master(settings: Settings, result: SeedResult) -> Amendment:
 
     with db.connect(settings, Role.INGEST) as conn:
         db.pin_session(conn, settings.schema_prefix)
+
+        source_id = conn.execute(
+            text("SELECT source_system_id FROM source_system WHERE code = :c"),
+            {"c": TARGET_SOURCE},
+        ).scalar_one_or_none()
+        if source_id is None:
+            raise AmendmentTargetMissingError(
+                f"no source_system {TARGET_SOURCE!r} — run `dq seed` before `dq seed --amend-master`"
+            )
 
         watermark_before = int(
             conn.execute(text("SELECT coalesce(max(batch_id), 0) FROM data_batch")).scalar_one()
@@ -529,8 +554,11 @@ def seed(settings: Settings, *, with_defects: bool = True) -> SeedResult:
             source_id = result.source_ids[code]
             for period_index, period in enumerate(PERIODS):
                 # The absent delivery. Nothing is inserted at all — not an empty batch, which is a
-                # different fact and one FR-021 must be able to tell apart.
-                if code == MISSING_FEED_SOURCE and period == PERIODS[-1]:
+                # different fact and one FR-021 must be able to tell apart. Only when defects are
+                # requested: a "clean" world (`with_defects=False`) must have every declared feed
+                # actually arrive, or FEED-LATE-MISSING fires against data nobody broke and US1/AC2
+                # ("zero findings against a clean world") is false from the moment this loop runs.
+                if with_defects and code == MISSING_FEED_SOURCE and period == PERIODS[-1]:
                     continue
 
                 arrival = arrival_base + timedelta(days=31 * period_index, hours=source_index)

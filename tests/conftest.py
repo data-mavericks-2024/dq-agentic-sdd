@@ -43,6 +43,7 @@ from dq.db.test_isolation import (
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 
+
 def _test_database_url() -> str:
     load_dotenv()
     raw = os.environ.get("TEST_DATABASE_URL", "").strip()

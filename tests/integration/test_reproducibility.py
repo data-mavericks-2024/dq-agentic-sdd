@@ -155,7 +155,7 @@ def amendment(settings: Settings, seeded: SeedResult, original_run: int) -> Amen
     Ordered after ``original_run`` deliberately: the point is that the amendment lands *after* the
     run whose world we later ask to see again.
     """
-    return amend_master(settings, seeded)
+    return amend_master(settings)
 
 
 @pytest.fixture(scope="module")

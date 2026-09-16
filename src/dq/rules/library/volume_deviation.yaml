@@ -7,7 +7,8 @@ subject_type: source_period
 parameters:
   threshold_pct: 20
 
-# FR-022 — a territory whose units moved more than the threshold against the prior period.
+# FR-022 — a (product, territory) combination whose units moved more than the threshold against
+# the prior period.
 #
 # The threshold lives in `parameters`, not in the SQL, so changing it appends a rule version and
 # every finding already recorded stays interpretable as what the *old* threshold meant (FR-006,
@@ -21,19 +22,29 @@ parameters:
 #
 # The comparison window is the scope period's own length, so a monthly scope compares against the
 # previous month and a weekly one against the previous week, with no separate configuration.
+#
+# **The grain is `(product_key, territory_code)`, not `territory_code` alone (spec Edge Cases).**
+# A territory-only aggregate lets one product's volume swing mask or manufacture a deviation in
+# another: a new product launching inside an otherwise-stable territory can drag the whole
+# territory's total past the threshold even though nothing about existing business changed. The
+# `JOIN` (not a `LEFT JOIN`) between the two CTEs is what gives a new product, or a product entering
+# a territory for the first time, no row to compare against — and therefore no finding, rather than
+# a deviation computed against a zero or absent baseline.
 predicate_sql: |
   WITH scope_period AS (
     SELECT t.territory_code,
+           t.product_key,
            sum(t.quantity) AS units
     FROM   sales_transaction t
     WHERE  t.source_system_id = :scope_source_system_id
       AND  t.txn_date >= CAST(:scope_period_start AS date)
       AND  t.txn_date <  CAST(:scope_period_end AS date)
       AND  t.batch_id <= :reference_watermark
-    GROUP  BY t.territory_code
+    GROUP  BY t.territory_code, t.product_key
   ),
   prior_period AS (
     SELECT t.territory_code,
+           t.product_key,
            sum(t.quantity) AS units
     FROM   sales_transaction t
     WHERE  t.source_system_id = :scope_source_system_id
@@ -42,13 +53,13 @@ predicate_sql: |
                             - CAST(:scope_period_start AS date))
       AND  t.txn_date <  CAST(:scope_period_start AS date)
       AND  t.batch_id <= :reference_watermark
-    GROUP  BY t.territory_code
+    GROUP  BY t.territory_code, t.product_key
   )
-  SELECT c.territory_code AS subject_key,
+  SELECT c.territory_code || ':' || c.product_key AS subject_key,
          NULL::text       AS offending_value,
          round(abs(c.units - p.units) / p.units * 100, 1)::text AS observed_value,
          (:threshold_pct)::text                                 AS expected_value
   FROM   scope_period c
-  JOIN   prior_period p ON p.territory_code = c.territory_code
+  JOIN   prior_period p ON p.territory_code = c.territory_code AND p.product_key = c.product_key
   WHERE  p.units > 0
     AND  abs(c.units - p.units) / p.units * 100 > :threshold_pct

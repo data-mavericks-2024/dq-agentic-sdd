@@ -61,11 +61,49 @@ def main() -> None:
 @main.command("seed")
 @click.option("--with-defects/--clean", default=True, help="Inject the deliberate defect set.")
 @click.option("--show-expected", is_flag=True, help="Print the expected finding set and exit.")
-def seed_cmd(with_defects: bool, show_expected: bool) -> None:
+@click.option(
+    "--periods",
+    type=int,
+    default=None,
+    help="Documents how many periods this invocation delivers: 3 for a fresh seed, 1 with "
+    "--amend-master. This generator's shape is fixed, so any other value is rejected rather than "
+    "silently seeding something different from what it says.",
+)
+@click.option(
+    "--amend-master",
+    "amend_master_flag",
+    is_flag=True,
+    help="Deliver a later batch carrying back-dated master-data changes against an earlier seed "
+    "already in the database, rather than generating a fresh world.",
+)
+def seed_cmd(
+    with_defects: bool, show_expected: bool, periods: int | None, amend_master_flag: bool
+) -> None:
     """Generate synthetic commercial data across three consecutive periods."""
-    from dq.seed.generator import seed
+    from dq.seed.generator import PERIODS, AmendmentTargetMissingError, amend_master, seed
 
     settings = _settings()
+
+    if amend_master_flag:
+        if periods not in (None, 1):
+            raise click.UsageError(
+                "--amend-master delivers exactly one period; --periods must be 1"
+            )
+        try:
+            amendment = amend_master(settings)
+        except AmendmentTargetMissingError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"amendment batch  : {amendment.batch_id}")
+        click.echo(f"watermark before : {amendment.watermark_before}")
+        click.echo(f"orphan resolved  : {amendment.orphan_key}")
+        click.echo(f"product amended  : {amendment.product_key} -> uom {amendment.new_uom}")
+        return
+
+    if periods is not None and periods != len(PERIODS):
+        raise click.UsageError(
+            f"this generator seeds exactly {len(PERIODS)} periods, not {periods}"
+        )
+
     result = seed(settings, with_defects=with_defects)
 
     click.echo(f"sources          : {', '.join(sorted(result.source_ids))}")
@@ -99,7 +137,12 @@ def rules_register(path: str | None, register_all: bool) -> None:
         raise click.UsageError("give a path, or --all")
 
     settings = _settings()
-    definitions = load_library(LIBRARY_DIR) if register_all else [load_definition(Path(str(path)))]
+    try:
+        definitions = (
+            load_library(LIBRARY_DIR) if register_all else [load_definition(Path(str(path)))]
+        )
+    except RuleDefinitionError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     with db.connect(settings, Role.AUTHOR) as conn:
         db.pin_session(conn, settings.schema_prefix)
@@ -345,6 +388,63 @@ def summarise_cmd(batch_id: int | None, source: str | None, period: str | None) 
         click.echo("rules errored:")
         for er in summary.errored_rules:
             click.echo(f"  {er.rule_key:<22} v{er.version_no}  {er.error_detail or ''}")
+
+
+# ---------------------------------------------------------------------------
+# admin
+# ---------------------------------------------------------------------------
+
+
+@main.group("admin")
+def admin_group() -> None:
+    """Operational maintenance that reaches beyond one schema prefix."""
+
+
+@admin_group.command("sweep-test-schemas")
+@click.option(
+    "--older-than",
+    type=float,
+    default=None,
+    metavar="HOURS",
+    help="Drop test schemas whose embedded timestamp is at least this many hours old. Defaults to "
+    "the same 4-hour staleness window the automatic per-session sweep uses. `--older-than 0` "
+    "drops every test schema regardless of age — for manual cleanup, not routine use.",
+)
+def admin_sweep_test_schemas(older_than: float | None) -> None:
+    """Drop stale `test_*` schemas left behind by a crashed test run (quickstart § Test isolation).
+
+    A schema whose liveness lock is currently held — a test session still running — is skipped
+    regardless of age, the same protection the automatic sweep gives a live session.
+    """
+    import os
+    from datetime import timedelta
+
+    from sqlalchemy import create_engine
+
+    from dq.config.settings import as_psycopg_url, load_dotenv
+    from dq.db.test_isolation import STALE_AFTER, sweep
+
+    load_dotenv()
+    raw = os.environ.get("TEST_DATABASE_URL", "").strip()
+    if not raw:
+        raise click.ClickException(
+            "TEST_DATABASE_URL is unset. Set it to the same stateful (session pooler) URL as "
+            "SUPABASE_DB_STATEFUL_URL."
+        )
+
+    stale_after = timedelta(hours=older_than) if older_than is not None else STALE_AFTER
+    engine = create_engine(as_psycopg_url(raw), future=True, pool_pre_ping=True)
+    try:
+        dropped = sweep(engine, stale_after=stale_after)
+    finally:
+        engine.dispose()
+
+    if not dropped:
+        click.echo("no stale test schemas found")
+        return
+    for name in dropped:
+        click.echo(f"  dropped {name}")
+    click.echo(f"{len(dropped)} schema(s) dropped")
 
 
 if __name__ == "__main__":

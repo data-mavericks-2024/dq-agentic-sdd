@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from dq.rules.predicates import RuleDefinitionError, validate_predicate
 
@@ -119,8 +119,34 @@ def _canonical_sql(sql: str) -> str:
     return " ".join(sql.split())
 
 
+def _render_validation_error(exc: ValidationError) -> str:
+    """One line per failing field, instead of pydantic's multi-line default rendering.
+
+    A CLI error is read once, on a terminal, by someone about to fix a YAML file — not logged and
+    grepped later, which is what the default rendering is shaped for.
+    """
+    parts = []
+    for error in exc.errors():
+        location = ".".join(str(segment) for segment in error["loc"]) or "(top level)"
+        parts.append(f"{location}: {error['msg']}")
+    return "; ".join(parts)
+
+
 def load_definition(path: Path) -> RuleDefinition:
-    """Load one rule definition from a YAML file."""
+    """Load one rule definition from a YAML file.
+
+    Every failure this can raise — malformed YAML, the wrong top-level shape, a missing or
+    out-of-vocabulary field, an unsafe predicate — is normalized to :class:`RuleDefinitionError`
+    carrying ``path.name``. A rule library is registered file by file; nothing here should ever let
+    a caller see which library member failed only by reading a raw traceback (T088).
+
+    **Pydantic wraps everything, including our own validator's errors.** `_predicate_is_safe`
+    raises `RuleDefinitionError` directly, but `RuleDefinitionError` is a `ValueError` subclass, and
+    Pydantic v2 catches every `ValueError` a model validator raises and re-wraps it as
+    `ValidationError` — so `except RuleDefinitionError` here would never fire. `ValidationError` is
+    the only exception type this ever needs to catch, whether the failure came from a plain field
+    constraint or from the predicate validator three layers in.
+    """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -133,10 +159,8 @@ def load_definition(path: Path) -> RuleDefinition:
 
     try:
         return RuleDefinition.model_validate(raw)
-    except RuleDefinitionError as exc:
-        # Raised by the predicate validator inside a model validator; re-raised with the filename
-        # so a library of nine rules says which one is wrong.
-        raise RuleDefinitionError(f"{path.name}: {exc}") from exc
+    except ValidationError as exc:
+        raise RuleDefinitionError(f"{path.name}: {_render_validation_error(exc)}") from exc
 
 
 def load_library(directory: Path) -> list[RuleDefinition]:

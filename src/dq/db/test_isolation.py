@@ -21,9 +21,7 @@ _SCHEMA_RE: Final[re.Pattern[str]] = re.compile(
 
 def advisory_lock_key(prefix: str) -> int:
     """Return a stable signed 64-bit advisory-lock key for ``prefix``."""
-    digest = hashlib.blake2b(
-        prefix.encode("ascii"), digest_size=8, person=b"dq-tests"
-    ).digest()
+    digest = hashlib.blake2b(prefix.encode("ascii"), digest_size=8, person=b"dq-tests").digest()
     return int.from_bytes(digest, byteorder="big", signed=True)
 
 

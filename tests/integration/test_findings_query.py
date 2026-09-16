@@ -121,7 +121,9 @@ def test_a_filter_matching_nothing_returns_an_empty_list_not_an_error(
     assert results == []
 
 
-def test_future_time_window_returns_nothing(findings_reader: Connection, evaluated_batch: int) -> None:
+def test_future_time_window_returns_nothing(
+    findings_reader: Connection, evaluated_batch: int
+) -> None:
     all_findings = query_findings(findings_reader)
     latest = max(f.detected_at for f in all_findings)
 
